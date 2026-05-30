@@ -21,7 +21,7 @@ genericDecoder = map to (genericDecoderRep (Proxy @0) (Proxy @rep))
 class GenericDecoderRep (n :: Int) rep where
   genericDecoderRep :: Proxy n -> Proxy rep -> Decoder rep
 
-instance
+instance genericDecoderRepConstructor ::
   ( Reflectable n Int
   , GenericDecoderArguments 1 args
   ) =>
@@ -37,7 +37,7 @@ instance
               runDecoder (genericDecoderArguments (Proxy @1) (Proxy @args)) fgn
           | otherwise -> Left $ UnknownConstructorTag n'
 
-else instance
+else instance genericDecoderRepSum ::
   ( PInt.Add n 1 succ
   , GenericDecoderRep n inl
   , GenericDecoderRep succ inr
@@ -54,10 +54,10 @@ else instance
 class GenericDecoderArguments (n :: Int) args where
   genericDecoderArguments :: Proxy n -> Proxy args -> Decoder args
 
-instance GenericDecoderArguments n NoArguments where
+instance genericDecoderArgumentsNoArguments :: GenericDecoderArguments n NoArguments where
   genericDecoderArguments _ _ = pure NoArguments
 
-else instance
+else instance genericDecoderArgumentsArgument ::
   ( Decode t
   , Reflectable n Int
   ) =>
@@ -72,7 +72,7 @@ else instance
           Left err' -> Left $ AtIndex n err'
           Right a -> Right $ Argument a
 
-else instance
+else instance genericDecoderArgumentsProduct ::
   ( PInt.Add n 1 succ
   , GenericDecoderArguments n pro1
   , GenericDecoderArguments succ pro2

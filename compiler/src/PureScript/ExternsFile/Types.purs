@@ -7,7 +7,7 @@ import Data.Foldable (class Foldable)
 import Data.Function.Uncurried (runFn2)
 import Data.Generic.Rep (class Generic)
 import Data.Maybe (Maybe)
-import Data.Newtype (class Newtype, unwrap)
+import Data.Newtype (class Newtype)
 import Data.Show.Generic (genericShow)
 import Data.Traversable (class Traversable)
 import Data.Tuple.Nested (type (/\), (/\))
@@ -17,19 +17,19 @@ import PureScript.ExternsFile.Decoder.Monad (Decoder(..), runDecoder)
 import PureScript.ExternsFile.Decoder.Newtype (newtypeDecoder)
 import PureScript.ExternsFile.Decoder.Utils (readAt)
 import PureScript.ExternsFile.Names (OpName, ProperName, Qualified)
-import PureScript.ExternsFile.PSString (PSString, unsafeUTF16ToString)
+import PureScript.ExternsFile.PSString (PSString, toString)
 import PureScript.ExternsFile.SourcePos (SourceAnn, SourcePos)
 
 newtype SkolemScope = SkolemScope Int
 
-derive instance Eq SkolemScope
-derive instance Ord SkolemScope
-derive instance Newtype SkolemScope _
+derive instance eqSkolemScope :: Eq SkolemScope
+derive instance ordSkolemScope :: Ord SkolemScope
+derive instance newtypeSkolemScope :: Newtype SkolemScope _
 
-instance Show SkolemScope where
+instance showSkolemScope :: Show SkolemScope where
   show (SkolemScope s) = "(SkolemScope " <> show s <> ")"
 
-instance Decode SkolemScope where
+instance decodeSkolemScope :: Decode SkolemScope where
   decoder = newtypeDecoder
 
 data WildcardData
@@ -37,37 +37,37 @@ data WildcardData
   | UnnamedWildcard
   | IgnoredWildcard
 
-derive instance Eq WildcardData
-derive instance Ord WildcardData
-derive instance Generic WildcardData _
-instance Show WildcardData where
+derive instance eqWildcardData :: Eq WildcardData
+derive instance ordWildcardData :: Ord WildcardData
+derive instance genericWildcardData :: Generic WildcardData _
+instance showWildcardData :: Show WildcardData where
   show = genericShow
 
-instance Decode WildcardData where
+instance decodeWildcardData :: Decode WildcardData where
   decoder = genericDecoder
 
 data TypeVarVisibility
   = TypeVarVisible
   | TypeVarInvisible
 
-derive instance Eq TypeVarVisibility
-derive instance Ord TypeVarVisibility
-derive instance Generic TypeVarVisibility _
-instance Show TypeVarVisibility where
+derive instance eqTypeVarVisibility :: Eq TypeVarVisibility
+derive instance ordTypeVarVisibility :: Ord TypeVarVisibility
+derive instance genericTypeVarVisibility :: Generic TypeVarVisibility _
+instance showTypeVarVisibility :: Show TypeVarVisibility where
   show = genericShow
 
-instance Decode TypeVarVisibility where
+instance decodeTypeVarVisibility :: Decode TypeVarVisibility where
   decoder = genericDecoder
 
 data ConstraintData = PartialConstraintData (Array (Array String)) Boolean
 
-derive instance Eq ConstraintData
-derive instance Ord ConstraintData
-derive instance Generic ConstraintData _
-instance Show ConstraintData where
+derive instance eqConstraintData :: Eq ConstraintData
+derive instance ordConstraintData :: Ord ConstraintData
+derive instance genericConstraintData :: Generic ConstraintData _
+instance showConstraintData :: Show ConstraintData where
   show = genericShow
 
-instance Decode ConstraintData where
+instance decodeConstraintData :: Decode ConstraintData where
   decoder = genericDecoder
 
 data Constraint a = Constraint
@@ -77,14 +77,14 @@ data Constraint a = Constraint
   (Array (Type a))
   (Maybe ConstraintData)
 
-derive instance Functor Constraint
-derive instance Foldable Constraint
-derive instance Traversable Constraint
-derive instance Generic (Constraint a) _
-instance Show a => Show (Constraint a) where
+derive instance functorConstraint :: Functor Constraint
+derive instance foldableConstraint :: Foldable Constraint
+derive instance traversableConstraint :: Traversable Constraint
+derive instance genericConstraint :: Generic (Constraint a) _
+instance showConstraint :: Show a => Show (Constraint a) where
   show = genericShow
 
-instance Decode a => Decode (Constraint a) where
+instance decodeConstraint :: Decode a => Decode (Constraint a) where
   decoder = genericDecoder
 
 type SourceType = Type SourceAnn
@@ -93,14 +93,14 @@ type SourceConstraint = Constraint SourceAnn
 
 newtype Label = Label PSString
 
-derive instance Newtype Label _
-derive newtype instance Eq Label
-derive newtype instance Ord Label
+derive instance newtypeLabel :: Newtype Label _
+derive newtype instance eqLabel :: Eq Label
+derive newtype instance ordLabel :: Ord Label
 
-instance Show Label where
-  show (Label pss) = pss # unwrap >>> unsafeUTF16ToString
+instance showLabel :: Show Label where
+  show (Label pss) = toString pss
 
-instance Decode Label where
+instance decodeLabel :: Decode Label where
   decoder = newtypeDecoder
 
 data Type a
@@ -122,14 +122,14 @@ data Type a
   | BinaryNoParensType a (Type a) (Type a) (Type a)
   | ParensInType a (Type a)
 
-derive instance Functor Type
-derive instance Foldable Type
-derive instance Traversable Type
-derive instance Generic (Type a) _
-instance Show a => Show (Type a) where
+derive instance functorType :: Functor Type
+derive instance foldableType :: Foldable Type
+derive instance traversableType :: Traversable Type
+derive instance genericType :: Generic (Type a) _
+instance showType :: Show a => Show (Type a) where
   show typ = genericShow typ
 
-instance Decode a => Decode (Type a) where
+instance decodeType :: Decode a => Decode (Type a) where
   decoder = Decoder \fgn -> runDecoder (genericDecoder @(Type a)) fgn
 
 data Role
@@ -137,13 +137,13 @@ data Role
   | Representational
   | Phantom
 
-derive instance Eq Role
-derive instance Ord Role
-derive instance Generic Role _
-instance Show Role where
+derive instance eqRole :: Eq Role
+derive instance ordRole :: Ord Role
+derive instance genericRole :: Generic Role _
+instance showRole :: Show Role where
   show = genericShow
 
-instance Decode Role where
+instance decodeRole :: Decode Role where
   decoder = genericDecoder
 
 displayRole :: Role -> String
@@ -160,12 +160,12 @@ newtype DataTypeArg = DataTypeArg
   , role :: Role
   }
 
-derive instance Newtype DataTypeArg _
-derive instance Generic DataTypeArg _
-instance Show DataTypeArg where
+derive instance newtypeDataTypeArg :: Newtype DataTypeArg _
+derive instance genericDataTypeArg :: Generic DataTypeArg _
+instance showDataTypeArg :: Show DataTypeArg where
   show = genericShow
 
-instance Decode DataTypeArg where
+instance decodeDataTypeArg :: Decode DataTypeArg where
   decoder = Decoder \fgn -> ado
     name <- runFn2 readAt 0 fgn >>= runDecoder decoder
     kind <- runFn2 readAt 1 fgn >>= runDecoder decoder
@@ -182,48 +182,48 @@ data TypeKind
   | LocalTypeVariable
   | ScopedTypeVar
 
-derive instance Generic TypeKind _
-instance Show TypeKind where
+derive instance genericTypeKind :: Generic TypeKind _
+instance showTypeKind :: Show TypeKind where
   show = genericShow
 
-instance Decode TypeKind where
+instance decodeTypeKind :: Decode TypeKind where
   decoder = genericDecoder
 
 data DataDeclType
   = Data
   | Newtype
 
-derive instance Eq DataDeclType
-derive instance Ord DataDeclType
-derive instance Generic DataDeclType _
-instance Show DataDeclType where
+derive instance eqDataDeclType :: Eq DataDeclType
+derive instance ordDataDeclType :: Ord DataDeclType
+derive instance genericDataDeclType :: Generic DataDeclType _
+instance showDataDeclType :: Show DataDeclType where
   show = genericShow
 
-instance Decode DataDeclType where
+instance decodeDataDeclType :: Decode DataDeclType where
   decoder = genericDecoder
 
 data FunctionalDependency = FunctionalDependency
   (Array Int) -- determiners
   (Array Int) -- determined
 
-derive instance Eq FunctionalDependency
-derive instance Ord FunctionalDependency
-derive instance Generic FunctionalDependency _
-instance Show FunctionalDependency where
+derive instance eqFunctionalDependency :: Eq FunctionalDependency
+derive instance ordFunctionalDependency :: Ord FunctionalDependency
+derive instance genericFunctionalDependency :: Generic FunctionalDependency _
+instance showFunctionalDependency :: Show FunctionalDependency where
   show = genericShow
 
-instance Decode FunctionalDependency where
+instance decodeFunctionalDependency :: Decode FunctionalDependency where
   decoder = genericDecoder
 
 newtype ChainId = ChainId (String /\ SourcePos)
 
-derive instance Eq ChainId
-derive instance Ord ChainId
-derive instance Newtype ChainId _
-instance Show ChainId where
+derive instance eqChainId :: Eq ChainId
+derive instance ordChainId :: Ord ChainId
+derive instance newtypeChainId :: Newtype ChainId _
+instance showChainId :: Show ChainId where
   show (ChainId cid) = "(ChainId " <> show cid <> ")"
 
-instance Decode ChainId where
+instance decodeChainId :: Decode ChainId where
   decoder = ChainId <$> decoder
 
 mkChainId :: String -> SourcePos -> ChainId

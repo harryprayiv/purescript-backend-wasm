@@ -15,13 +15,13 @@ data ExportSource = ExportSource
   (Maybe ModuleName) -- imported from
   ModuleName -- defined in
 
-derive instance Eq ExportSource
-derive instance Ord ExportSource
-derive instance Generic ExportSource _
-instance Show ExportSource where
+derive instance eqExportSource :: Eq ExportSource
+derive instance ordExportSource :: Ord ExportSource
+derive instance genericExportSource :: Generic ExportSource _
+instance showExportSource :: Show ExportSource where
   show = genericShow
 
-instance Decode ExportSource where
+instance decodeExportSource :: Decode ExportSource where
   decoder = genericDecoder
 
 data DeclarationRef
@@ -34,7 +34,7 @@ data DeclarationRef
   | ModuleRef SourceSpan ModuleName
   | ReExportRef SourceSpan ExportSource DeclarationRef
 
-instance Eq DeclarationRef where
+instance eqDeclarationRef :: Eq DeclarationRef where
   eq = case _, _ of
     TypeClassRef _ name1, TypeClassRef _ name2 -> name1 == name2
     TypeOpRef _ name1, TypeOpRef _ name2 -> name1 == name2
@@ -46,7 +46,7 @@ instance Eq DeclarationRef where
     ReExportRef _ mn1 ref1, ReExportRef _ mn2 ref2 -> mn1 == mn2 && ref1 == ref2
     _, _ -> false
 
-instance Ord DeclarationRef where
+instance ordDeclarationRef :: Ord DeclarationRef where
   compare = case _, _ of
     TypeClassRef _ name1, TypeClassRef _ name2 -> compare name1 name2
     TypeOpRef _ name1, TypeOpRef _ name2 -> compare name1 name2
@@ -69,10 +69,10 @@ instance Ord DeclarationRef where
         ModuleRef _ _ -> 6
         ReExportRef _ _ _ -> 7
 
-derive instance Generic DeclarationRef _
+derive instance genericDeclarationRef :: Generic DeclarationRef _
 
-instance Show DeclarationRef where
+instance showDeclarationRef :: Show DeclarationRef where
   show ref = genericShow ref
 
-instance Decode DeclarationRef where
+instance decodeDeclarationRef :: Decode DeclarationRef where
   decoder = Decoder \fgn -> runDecoder genericDecoder fgn

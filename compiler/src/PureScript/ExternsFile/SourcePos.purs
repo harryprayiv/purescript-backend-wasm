@@ -10,24 +10,24 @@ import PureScript.ExternsFile.Decoder.Generic (genericDecoder)
 
 data SourcePos = SourcePos Int Int -- line, column
 
-derive instance Eq SourcePos
-derive instance Ord SourcePos
-derive instance Generic SourcePos _
-instance Show SourcePos where
+derive instance eqSourcePos :: Eq SourcePos
+derive instance ordSourcePos :: Ord SourcePos
+derive instance genericSourcePos :: Generic SourcePos _
+instance showSourcePos :: Show SourcePos where
   show = genericShow
 
-instance Decode SourcePos where
+instance decodeSourcePos :: Decode SourcePos where
   decoder = genericDecoder
 
 data SourceSpan = SourceSpan String SourcePos SourcePos
 
-derive instance Eq SourceSpan
-derive instance Ord SourceSpan
-derive instance Generic SourceSpan _
-instance Show SourceSpan where
+derive instance eqSourceSpan :: Eq SourceSpan
+derive instance ordSourceSpan :: Ord SourceSpan
+derive instance genericSourceSpan :: Generic SourceSpan _
+instance showSourceSpan :: Show SourceSpan where
   show = genericShow
 
-instance Decode SourceSpan where
+instance decodeSourceSpan :: Decode SourceSpan where
   decoder = genericDecoder
 
 type SourceAnn = Tuple SourceSpan (Array Comment)
@@ -36,11 +36,11 @@ data Comment
   = LineComment String
   | BlockComment String
 
-derive instance Eq Comment
-derive instance Ord Comment
-derive instance Generic Comment _
-instance Show Comment where
+derive instance eqComment :: Eq Comment
+derive instance ordComment :: Ord Comment
+derive instance genericComment :: Generic Comment _
+instance showComment :: Show Comment where
   show = genericShow
 
-instance Decode Comment where
+instance decodeComment :: Decode Comment where
   decoder = genericDecoder

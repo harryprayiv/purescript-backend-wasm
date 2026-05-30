@@ -37,11 +37,11 @@ data ExternsFile = ExternsFile
   (Array ExternsDeclaration) -- efDeclarations
   SourceSpan -- efSourceSpan
 
-derive instance Generic ExternsFile _
-instance Show ExternsFile where
+derive instance genericExternsFile :: Generic ExternsFile _
+instance showExternsFile :: Show ExternsFile where
   show = genericShow
 
-instance Decode ExternsFile where
+instance decodeExternsFile :: Decode ExternsFile where
   decoder = genericDecoder
 
 data ImportDeclarationType
@@ -49,13 +49,13 @@ data ImportDeclarationType
   | Explicit (Array Ext.DeclarationRef)
   | Hiding (Array Ext.DeclarationRef)
 
-derive instance Eq ImportDeclarationType
-derive instance Ord ImportDeclarationType
-derive instance Generic ImportDeclarationType _
-instance Show ImportDeclarationType where
+derive instance eqImportDeclarationType :: Eq ImportDeclarationType
+derive instance ordImportDeclarationType :: Ord ImportDeclarationType
+derive instance genericImportDeclarationType :: Generic ImportDeclarationType _
+instance showImportDeclarationType :: Show ImportDeclarationType where
   show = genericShow
 
-instance Decode ImportDeclarationType where
+instance decodeImportDeclarationType :: Decode ImportDeclarationType where
   decoder = genericDecoder
 
 data ExternsImport = ExternsImport
@@ -63,13 +63,13 @@ data ExternsImport = ExternsImport
   ImportDeclarationType
   (Maybe ModuleName)
 
-derive instance Eq ExternsImport
-derive instance Ord ExternsImport
-derive instance Generic ExternsImport _
-instance Show ExternsImport where
+derive instance eqExternsImport :: Eq ExternsImport
+derive instance ordExternsImport :: Ord ExternsImport
+derive instance genericExternsImport :: Generic ExternsImport _
+instance showExternsImport :: Show ExternsImport where
   show = genericShow
 
-instance Decode ExternsImport where
+instance decodeExternsImport :: Decode ExternsImport where
   decoder = genericDecoder
 
 type Precedence = Int
@@ -79,21 +79,21 @@ data Associativity
   | Infixl
   | Infixr
 
-derive instance Eq Associativity
-derive instance Ord Associativity
-derive instance Generic Associativity _
-instance Show Associativity where
+derive instance eqAssociativity :: Eq Associativity
+derive instance ordAssociativity :: Ord Associativity
+derive instance genericAssociativity :: Generic Associativity _
+instance showAssociativity :: Show Associativity where
   show = genericShow
 
-instance Decode Associativity where
+instance decodeAssociativity :: Decode Associativity where
   decoder = genericDecoder
 
 data Fixity = Fixity Associativity Precedence
 
-derive instance Eq Fixity
-derive instance Ord Fixity
-derive instance Generic Fixity _
-instance Show Fixity where
+derive instance eqFixity :: Eq Fixity
+derive instance ordFixity :: Ord Fixity
+derive instance genericFixity :: Generic Fixity _
+instance showFixity :: Show Fixity where
   show = genericShow
 
 data ExternsFixity = ExternsFixity
@@ -102,24 +102,24 @@ data ExternsFixity = ExternsFixity
   OpName
   (Qualified (Either Ident ProperName))
 
-derive instance Eq ExternsFixity
-derive instance Ord ExternsFixity
-derive instance Generic ExternsFixity _
-instance Show ExternsFixity where
+derive instance eqExternsFixity :: Eq ExternsFixity
+derive instance ordExternsFixity :: Ord ExternsFixity
+derive instance genericExternsFixity :: Generic ExternsFixity _
+instance showExternsFixity :: Show ExternsFixity where
   show = genericShow
 
-instance Decode ExternsFixity where
+instance decodeExternsFixity :: Decode ExternsFixity where
   decoder = genericDecoder
 
 data ExternsTypeFixity = ExternsTypeFixity Associativity Precedence OpName (Qualified ProperName)
 
-derive instance Eq ExternsTypeFixity
-derive instance Ord ExternsTypeFixity
-derive instance Generic ExternsTypeFixity _
-instance Show ExternsTypeFixity where
+derive instance eqExternsTypeFixity :: Eq ExternsTypeFixity
+derive instance ordExternsTypeFixity :: Ord ExternsTypeFixity
+derive instance genericExternsTypeFixity :: Generic ExternsTypeFixity _
+instance showExternsTypeFixity :: Show ExternsTypeFixity where
   show = genericShow
 
-instance Decode ExternsTypeFixity where
+instance decodeExternsTypeFixity :: Decode ExternsTypeFixity where
   decoder = genericDecoder
 
 data ExternsDeclaration
@@ -159,11 +159,11 @@ data ExternsDeclaration
       NameSource -- edInstanceNameSource
       SourceSpan -- edInstanceSourceSpan
 
-derive instance Generic ExternsDeclaration _
-instance Show ExternsDeclaration where
+derive instance genericExternsDeclaration :: Generic ExternsDeclaration _
+instance showExternsDeclaration :: Show ExternsDeclaration where
   show = genericShow
 
-instance Decode ExternsDeclaration where
+instance decodeExternsDeclaration :: Decode ExternsDeclaration where
   decoder = genericDecoder
 
 identOfExternsDeclaration :: ExternsDeclaration -> Ident
