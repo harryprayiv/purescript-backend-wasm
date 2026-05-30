@@ -40,7 +40,7 @@ jobs:
 
       # Run CI jobs
       - name: Install
-        run: pnpm -F './${{ matrix.target }}' install
+        run: pnpm install
 
       - name: Compile
         run: pnpm -F './${{ matrix.target}}' run compile
