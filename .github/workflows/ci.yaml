@@ -24,7 +24,8 @@ jobs:
     steps:
       # Setup Nix envirionment
       - uses: actions/checkout@v3
-      - uses: cachix/install-nix-action@v23
+      # v30 ships Nix >= 2.18, required by the pinned nixos-25.11 nixpkgs.
+      - uses: cachix/install-nix-action@v30
         with:
           # No nixpkgs channel pin here: the toolchain comes from `nix develop`,
           # so flake.nix + flake.lock are the single source of truth.
