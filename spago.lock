@@ -38,14 +38,49 @@
         "path": "compiler",
         "core": {
           "dependencies": [
+            "aff",
+            "argonaut-codecs",
+            "argonaut-core",
+            "arrays",
+            "bifunctors",
             "binaryen",
             "console",
+            "control",
             "effect",
-            "prelude"
+            "either",
+            "foldable-traversable",
+            "foreign",
+            "foreign-object",
+            "functions",
+            "identity",
+            "js-promise-aff",
+            "maybe",
+            "newtype",
+            "node-buffer",
+            "prelude",
+            "strings",
+            "transformers",
+            "tuples"
           ]
         },
         "test": {
-          "dependencies": []
+          "dependencies": [
+            "aff",
+            "argonaut-codecs",
+            "argonaut-core",
+            "arrays",
+            "console",
+            "effect",
+            "either",
+            "foreign",
+            "maybe",
+            "node-buffer",
+            "node-fs",
+            "spec",
+            "spec-node",
+            "strings",
+            "tuples"
+          ]
         }
       }
     },
@@ -1148,6 +1183,37 @@
         "integers",
         "maybe",
         "prelude"
+      ]
+    },
+    "js-promise": {
+      "type": "registry",
+      "version": "1.0.0",
+      "integrity": "sha256-u+6+ofIwT5XhT2fbMu4dShwkyWGfPRt9642Cnzw/Wvk=",
+      "dependencies": [
+        "effect",
+        "exceptions",
+        "foldable-traversable",
+        "functions",
+        "maybe",
+        "newtype",
+        "prelude"
+      ]
+    },
+    "js-promise-aff": {
+      "type": "registry",
+      "version": "1.0.0",
+      "integrity": "sha256-gEKAdNnTWjXS+tTp/AhYl/ezloKfuoQFcBKrdOx2USo=",
+      "dependencies": [
+        "aff",
+        "control",
+        "effect",
+        "either",
+        "exceptions",
+        "foreign",
+        "js-promise",
+        "maybe",
+        "prelude",
+        "transformers"
       ]
     },
     "lazy": {
