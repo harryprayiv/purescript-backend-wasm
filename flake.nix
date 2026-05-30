@@ -27,7 +27,7 @@
               spago
               purs-tidy-bin.purs-tidy-0_10_0
               purs-backend-es
-              nodejs_22
+              nodejs_24
               pnpm
               claude-code
             ]; 
