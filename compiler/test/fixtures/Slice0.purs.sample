@@ -1,0 +1,26 @@
+-- | Source for `Slice0.corefn.json` (the Slice 0 / scalar-Int E2E fixture).
+-- |
+-- | It deliberately uses module-local `foreign import` primitives (mapped to
+-- | i32 intrinsics by the backend's `ForeignProvider`) instead of `+`/`*`, so
+-- | it pulls in no type-class dictionaries, records, closures, or pattern
+-- | matching — only top-level functions, integer literals, and saturated calls.
+-- |
+-- | The `.sample` extension keeps it out of the `test/**/*.purs` build glob; it
+-- | is not compiled as part of the suite. See README.md for how to regenerate
+-- | the `.corefn.json`.
+module Slice0 where
+
+foreign import addI :: Int -> Int -> Int
+foreign import mulI :: Int -> Int -> Int
+
+double :: Int -> Int
+double x = addI x x
+
+quad :: Int -> Int
+quad x = double (double x)
+
+sumOfSquares :: Int -> Int -> Int
+sumOfSquares x y = addI (mulI x x) (mulI y y)
+
+five :: Int
+five = addI 2 3

@@ -1,20 +1,33 @@
-# CoreFn decoder fixtures
+# Fixtures
 
-`Sample.corefn.json` is real output from `purs 0.15.16`, used by the unit test
-to guard the decoder against the actual compiler schema.
+Real `purs 0.15.16` output, checked in so the decoder and backend test against
+the actual compiler schema rather than a hand-written approximation. Every
+`*.corefn.json` has its generating PureScript next to it as `*.purs.sample`
+(plus `*.js.sample` when the module has foreign imports). The `.sample`
+extension keeps these sources out of the `test/**/*.purs` build glob — they are
+documentation/regeneration inputs, not compiled with the suite.
 
-It was generated from `Sample.purs.sample` (a construct-rich module covering
-every CoreFn node kind: literals, data/newtype/class declarations, records,
-accessors/updates, lambdas, application, `let`/recursion, and `case` with
-guards and every binder shape). The `.sample` extension keeps it out of the
-`test/**/*.purs` build glob.
+| corefn fixture        | source                | used by                       | exercises                                                            |
+| --------------------- | --------------------- | ----------------------------- | -------------------------------------------------------------------- |
+| `Sample.corefn.json`  | `Sample.purs.sample`  | `Test.Unit.PureScript.CoreFn` | every CoreFn node kind (decoder schema guard)                        |
+| `Slice0.corefn.json`  | `Slice0.purs.sample`  | `Test.E2E.Slice0`             | scalar `Int`: top-level fns, saturated calls, foreign i32 intrinsics |
+| `Slice1.corefn.json`  | `Slice1.purs.sample`  | `Test.E2E.Slice1`             | ADTs: construction + single-scrutinee pattern matching               |
 
-To regenerate after a compiler upgrade:
+## Regenerating
+
+Each fixture is built by temporarily dropping its source into `compiler/src`,
+compiling to CoreFn, copying the result back, and cleaning up. For `Slice1`
+(no foreign module) omit the `.js` lines.
 
 ```sh
-cp compiler/test/fixtures/Sample.purs.sample compiler/src/Sample.purs
-cp compiler/test/fixtures/Sample.js.sample   compiler/src/Sample.js
+# Example: Slice0 (has an FFI module)
+cp compiler/test/fixtures/Slice0.purs.sample compiler/src/Slice0.purs
+cp compiler/test/fixtures/Slice0.js.sample   compiler/src/Slice0.js
 spago build -p compiler
-cp output/Sample/corefn.json compiler/test/fixtures/Sample.corefn.json
-rm compiler/src/Sample.purs compiler/src/Sample.js output/Sample -r
+cp output/Slice0/corefn.json compiler/test/fixtures/Slice0.corefn.json
+rm compiler/src/Slice0.purs compiler/src/Slice0.js
+rm -rf output/Slice0
 ```
+
+The same recipe regenerates `Sample` and `Slice1` (swap the names; for `Slice1`
+drop the two `.js` lines).

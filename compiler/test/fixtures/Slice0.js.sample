@@ -1,0 +1,5 @@
+// FFI for Slice0.purs.sample. Needed only so `purs` accepts the foreign imports
+// when regenerating Slice0.corefn.json; the backend provides its own i32
+// implementations, so this JS is never used at runtime.
+export const addI = (x) => (y) => (x + y) | 0;
+export const mulI = (x) => (y) => Math.imul(x, y);
