@@ -24,6 +24,7 @@ package:
     - functions
     - identity
     - bifunctors
+    - exceptions
   test:
     main: Test.Unit.Compiler
     dependencies:
@@ -42,3 +43,5 @@ package:
       - foreign
       - node-buffer
       - node-fs
+      - arraybuffer-types
+      - exceptions
