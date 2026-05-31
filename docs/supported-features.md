@@ -277,9 +277,83 @@ lifted to top-level code functions (`$code0`/`$code1`, omitted here). The body o
   (local.get $3))
 ```
 
+## Type-class dictionaries
+
+```purs
+class Addable a where
+  plus :: a -> a -> a
+  nil :: a
+
+instance addableInt :: Addable Int where
+  plus x y = addI x y
+  nil = 0
+
+double :: forall a. Addable a => a -> a
+double x = plus x x
+
+doubleInt :: Int -> Int
+doubleInt n = double n
+```
+
+In CoreFn a class is a **newtype dictionary constructor** wrapping a record of
+its methods, an instance is a top-level value (a record), and a method is an
+accessor `\dict -> case dict of Addable$Dict v -> v.plus`. So dictionaries are
+**records**, and — since a record's fields are not known at a projection site
+(CoreFn is type-erased) — they are represented as a **label-map** that is
+searched at runtime (ADR 0001 / 0007): a `$Rec` struct of parallel arrays, the
+labels **interned to `i32` ids** (no string runtime yet) and the values. The
+newtype constructor and its `case` unwrap are erased; `double` receives the
+dictionary and passes it on (dictionary-passing).
+
+```wat
+;; types: $0 = boxed Int   $1 = (array (mut eqref))   $2 = closure
+;;        $4 = (array i32)                        interned label ids
+;;        $5 = (struct (ref $4) (ref $1))         a record = label ids + values
+;; instance addableInt : the record { nil, plus } (labels sorted: nil=0, plus=1)
+(func $M.addableInt (result eqref)
+  (local $0 eqref) (local $1 eqref)
+  (local.set $0 (struct.new $2 (ref.func $M.$code1) (array.new_fixed $1 0)))   ;; the `plus` closure
+  (local.set $1 (struct.new $5
+    (array.new_fixed $4 2 (i32.const 0) (i32.const 1))                         ;; label ids [nil, plus]
+    (array.new_fixed $1 2 (struct.new $0 (i32.const 0)) (local.get $0))))      ;; values   [0,   plus]
+  (local.get $1))
+;; method `plus` : project label id 1 from the dictionary (a label search)
+(func $M.plus (param $0 eqref) (result eqref)
+  (local $1 eqref)
+  (local.set $1 (call $rt.proj (local.get $0) (i32.const 1)))
+  (local.get $1))
+```
+
+Projection is one shared runtime helper — `$rt.proj(rec, targetId)` linearly
+searches the label-id array and returns the parallel value:
+
+```wat
+(func $rt.proj (param $0 eqref) (param $1 i32) (result eqref)
+  (local $2 i32)                                        ;; index
+  (block $found (result eqref)
+    (local.set $2 (i32.const 0))
+    (loop $loop
+      ;; if ids[i] == target  ->  return vals[i]
+      (if (i32.eq (array.get $4 (struct.get $5 0 (ref.cast (ref $5) (local.get $0))) (local.get $2))
+                  (local.get $1))
+        (then (br $found (array.get $1 (struct.get $5 1 (ref.cast (ref $5) (local.get $0))) (local.get $2)))))
+      (local.set $2 (i32.add (local.get $2) (i32.const 1)))
+      (br_if $loop (i32.lt_u (local.get $2)
+                             (array.len (struct.get $5 0 (ref.cast (ref $5) (local.get $0))))))
+      (unreachable))))                                  ;; label absent — impossible by construction
+```
+
+So `doubleInt(n)` → `2n`, dispatching `plus` through the dictionary. The same
+label search serves **superclass access**: a superclass dictionary is just
+another (thunked) field `<SuperclassName><n>` (e.g. `Base0`), read by the same
+`$rt.proj` and then applied — no class/type information needed, so arbitrarily
+deep hierarchies work. (Positional/tuple dictionaries would be faster but need
+type information; deferred to a later optimization — ADR 0007.)
+
 ## Host interface
 
 Every exported function gets a thin `…$export` wrapper with the host-facing
 `i32` signature (visible in the first example): it boxes the `i32` arguments,
 calls the internal `eqref` function, and unboxes the `i32` result. Today the
-host boundary is `Int`-typed.
+host boundary is `Int`-typed; a binding whose value is not an `Int` (an instance
+dictionary, say) still gets a wrapper, but it traps if actually called as `i32`.

@@ -34,7 +34,10 @@ Code generation, by slice (see
 - [x] **Slice 1** — boxing (`eqref`) + ADTs + pattern matching (decision trees)
 - [x] **Slice 2** — closures + currying (eval/apply): partial/over application,
       first-class functions, top-level & local recursion (`let rec` knot-tying)
-- [ ] **Slice 3** — records + type-class dictionaries (dictionary-passing E2E)
+- [x] **Slice 3** — type-class dictionaries (dictionary-passing E2E): dictionaries
+      as label-id-keyed records, method dispatch by runtime label search, instance
+      CAFs, superclass access. General extensible records deferred (ADR 0007);
+      positional/tuple dictionary specialization is a later optimization (ADR 0007)
 - [ ] **Slice 4** — strings + string runtime + arrays (`show`, `<>`, …)
 
 Later:
