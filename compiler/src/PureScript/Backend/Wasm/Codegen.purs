@@ -38,11 +38,15 @@ type RuntimeTypes =
   , valsHt :: B.HeapType
   , adtHt :: B.HeapType
   , cloHt :: B.HeapType
+  , labelIdsHt :: B.HeapType
+  , recHt :: B.HeapType
   , codeHt :: B.HeapType
   , refInt :: B.Type
   , refVals :: B.Type
   , refAdt :: B.Type
   , refClo :: B.Type
+  , refLabelIds :: B.Type
+  , refRec :: B.Type
   , refCode :: B.Type
   }
 
@@ -61,9 +65,14 @@ buildModule prog = do
   B.setFeaturesGC mod
   rt <- buildRuntimeTypes mod
   let ctx = { mod, rt, params: [] }
+  addProjHelper ctx
   traverse_ (addFunc ctx) prog.funcs
   traverse_ (addExportWrapper ctx) prog.funcs
   pure mod
+
+-- | The shared record/dictionary projection helper (see `addProjHelper`).
+projHelperName :: String
+projHelperName = "$rt.proj"
 
 -- | Build the value type group (`$Vals` / `$Int` / `$ADT` / `$Clo`) and, in a
 -- | separate recursion group, the closure code signature `$Code`. `$Clo` holds
@@ -72,15 +81,19 @@ buildModule prog = do
 -- | matches `$Code` for `call_ref`.
 buildRuntimeTypes :: B.Module -> Effect RuntimeTypes
 buildRuntimeTypes _ = do
-  tb <- B.typeBuilderCreate 4
+  tb <- B.typeBuilderCreate 6
   B.typeBuilderSetArrayType tb 0 B.eqref true -- $Vals = (array (mut eqref))
   B.typeBuilderSetStructType tb 1 [ { ty: B.i32, mutable: false } ] -- $Int
   refValsTmp <- B.typeBuilderGetTempHeapType tb 0 >>= \h -> B.typeBuilderGetTempRefType tb h false
   B.typeBuilderSetStructType tb 2 [ { ty: B.i32, mutable: false }, { ty: refValsTmp, mutable: false } ] -- $ADT
   B.typeBuilderSetStructType tb 3 [ { ty: B.funcref, mutable: false }, { ty: refValsTmp, mutable: false } ] -- $Clo
-  main <- B.typeBuilderBuildAndDispose tb 4
+  B.typeBuilderSetArrayType tb 4 B.i32 false -- $LabelIds = (array i32), interned record labels
+  refLabelIdsTmp <- B.typeBuilderGetTempHeapType tb 4 >>= \h -> B.typeBuilderGetTempRefType tb h false
+  -- $Rec = (struct (ref $LabelIds) (ref $Vals)) — parallel label-id / value arrays
+  B.typeBuilderSetStructType tb 5 [ { ty: refLabelIdsTmp, mutable: false }, { ty: refValsTmp, mutable: false } ]
+  main <- B.typeBuilderBuildAndDispose tb 6
   case main of
-    [ valsHt, intHt, adtHt, cloHt ] -> do
+    [ valsHt, intHt, adtHt, cloHt, labelIdsHt, recHt ] -> do
       let refClo = B.typeFromHeapType cloHt false
       tb2 <- B.typeBuilderCreate 1
       B.typeBuilderSetSignatureType tb2 0 (B.createType [ refClo, B.eqref ]) B.eqref
@@ -91,15 +104,19 @@ buildRuntimeTypes _ = do
           , valsHt
           , adtHt
           , cloHt
+          , labelIdsHt
+          , recHt
           , codeHt
           , refInt: B.typeFromHeapType intHt false
           , refVals: B.typeFromHeapType valsHt false
           , refAdt: B.typeFromHeapType adtHt false
           , refClo
+          , refLabelIds: B.typeFromHeapType labelIdsHt false
+          , refRec: B.typeFromHeapType recHt false
           , refCode: B.typeFromHeapType codeHt false
           }
         _ -> throwException (error "Codegen: expected exactly 1 code heap type")
-    _ -> throwException (error "Codegen: expected exactly 4 runtime heap types")
+    _ -> throwException (error "Codegen: expected exactly 6 runtime heap types")
 
 -- | The wasm value type for an IR representation.
 repType :: Ctx -> Rep -> B.Type
@@ -140,6 +157,50 @@ addExportWrapper ctx fn = case fn.export of
     _ <- B.addFunction ctx.mod wrapperName params B.i32 [] unboxed
     _ <- B.addFunctionExport ctx.mod wrapperName external
     pure unit
+
+-- | Add the shared record/dictionary projection helper
+-- | `$rt.proj(rec : eqref, target : i32) -> eqref`: a linear search of the
+-- | record's interned label-id array for `target`, returning the parallel value
+-- | (ADR 0007). Emitted once and called by every `RProjLabel`. Records are never
+-- | empty (a dictionary always has its methods), so the first read needs no bound
+-- | check; subsequent iterations are guarded by `i < len`, and exhausting the
+-- | array traps (the label was absent — a compile-time impossibility).
+addProjHelper :: Ctx -> Effect Unit
+addProjHelper ctx = do
+  let mod = ctx.mod
+  let rt = ctx.rt
+  let recRec = B.localGet mod 0 B.eqref >>= \r -> B.refCast mod r rt.refRec
+  setI0 <- B.i32Const mod 0 >>= B.localSet mod 2
+  -- if ids[i] == target: break out of `found` with vals[i]
+  idsArr <- recRec >>= \r -> B.structGet mod 0 r rt.refLabelIds false
+  iForId <- B.localGet mod 2 B.i32
+  idAtI <- B.arrayGet mod idsArr iForId B.i32 false
+  target <- B.localGet mod 1 B.i32
+  cond <- B.i32Eq mod idAtI target
+  valsArr <- recRec >>= \r -> B.structGet mod 1 r rt.refVals false
+  iForVal <- B.localGet mod 2 B.i32
+  foundVal <- B.arrayGet mod valsArr iForVal B.eqref false
+  returnFound <- B.brWithValue mod "found" foundVal
+  noop <- B.block mod [] B.none
+  testAndReturn <- B.if_ mod cond returnFound noop
+  -- i := i + 1
+  setIInc <- do
+    iOld <- B.localGet mod 2 B.i32
+    one <- B.i32Const mod 1
+    B.i32Add mod iOld one >>= B.localSet mod 2
+  -- continue while i < len
+  idsArr2 <- recRec >>= \r -> B.structGet mod 0 r rt.refLabelIds false
+  len <- B.arrayLen mod idsArr2
+  iForCmp <- B.localGet mod 2 B.i32
+  lt <- B.i32LtU mod iForCmp len
+  brLoop <- B.brIf mod "loop" lt
+  trapNoMatch <- B.unreachable mod
+  loopBody <- B.block mod [ testAndReturn, setIInc, brLoop, trapNoMatch ] B.auto
+  loopE <- B.loop mod "loop" loopBody
+  trapEnd <- B.unreachable mod
+  found <- B.blockNamed mod "found" [ setI0, loopE, trapEnd ] B.eqref
+  _ <- B.addFunction mod projHelperName (B.createType [ B.eqref, B.i32 ]) B.eqref [ B.i32 ] found
+  pure unit
 
 -- | Box an `i32` expression into an `eqref` (`struct.new $Int`).
 boxInt :: Ctx -> B.Expression -> Effect B.Expression
@@ -269,6 +330,20 @@ genRhs ctx = case _ of
     vals <- B.structGet ctx.mod 1 c ctx.rt.refVals false
     idx <- B.i32Const ctx.mod index
     B.arrayGet ctx.mod vals idx B.eqref false
+  -- A record (a type-class dictionary, after newtype erasure) is parallel
+  -- label-id / value arrays inside a `$Rec` struct (ADR 0001 / 0007).
+  RMkRecord pairs -> do
+    idEs <- traverse (\(Tuple labelId _) -> B.i32Const ctx.mod labelId) pairs
+    valEs <- traverse (\(Tuple _ valAtom) -> genAtom ctx valAtom) pairs
+    idsArr <- B.arrayNewFixed ctx.mod ctx.rt.labelIdsHt idEs
+    valsArr <- B.arrayNewFixed ctx.mod ctx.rt.valsHt valEs
+    B.structNew ctx.mod ctx.rt.recHt [ idsArr, valsArr ]
+  -- Projection is a runtime label-id search, delegated to the shared helper so
+  -- the loop is emitted once (ADR 0007).
+  RProjLabel recAtom labelId -> do
+    recE <- genAtom ctx recAtom
+    idE <- B.i32Const ctx.mod labelId
+    B.call ctx.mod projHelperName [ recE, idE ] B.eqref
   RMkClosure codeName captures -> do
     capEs <- traverse (genAtom ctx) captures
     envArr <- B.arrayNewFixed ctx.mod ctx.rt.valsHt capEs

@@ -17,15 +17,23 @@ module Binaryen
   , f32
   , f64
   , none
+  , auto
   , createType
   , localGet
   , localSet
   , block
+  , blockNamed
+  , loop
+  , br
+  , brIf
+  , brWithValue
+  , brIfWithValue
   , call
   , i32Add
   , i32Sub
   , i32Mul
   , i32Eq
+  , i32LtU
   , i32Const
   , if_
   , unreachable
@@ -54,6 +62,7 @@ module Binaryen
   , arrayNewFixed
   , arrayGet
   , arraySet
+  , arrayLen
   , refCast
   , refFunc
   , callRef
@@ -98,6 +107,11 @@ foreign import f64 :: Type
 -- | The empty type, e.g. for a function that returns nothing.
 foreign import none :: Type
 
+-- | The "infer" type sentinel (`BinaryenTypeAuto`): when given as a `block`'s
+-- | type, Binaryen infers it from the block's contents (its fall-through value
+-- | and any branches to it).
+foreign import auto :: Type
+
 -- | Pack zero or more types into a single (tuple) type, used for function
 -- | parameter and result signatures.
 foreign import createType :: Array Type -> Type
@@ -121,6 +135,46 @@ foreign import blockImpl :: Module -> Array Expression -> Type -> Effect Express
 -- | those of its last child.
 block :: Module -> Array Expression -> Type -> Effect Expression
 block = blockImpl
+
+foreign import blockNamedImpl :: Module -> String -> Array Expression -> Type -> Effect Expression
+
+-- | A `block` with a `label` that `br`/`brIf` can target to exit early. Branches
+-- | carrying a value must match the block's declared `Type`.
+blockNamed :: Module -> String -> Array Expression -> Type -> Effect Expression
+blockNamed = blockNamedImpl
+
+foreign import loopImpl :: Module -> String -> Expression -> Effect Expression
+
+-- | A `loop` with a `label`; a `br` to that label jumps back to the loop's start
+-- | (a continue). The loop takes the type of its body.
+loop :: Module -> String -> Expression -> Effect Expression
+loop = loopImpl
+
+foreign import brImpl :: Module -> String -> Effect Expression
+
+-- | Unconditional branch to a `block`/`loop` `label`.
+br :: Module -> String -> Effect Expression
+br = brImpl
+
+foreign import brIfImpl :: Module -> String -> Expression -> Effect Expression
+
+-- | Branch to `label` iff `condition` is non-zero (no carried value).
+brIf :: Module -> String -> Expression -> Effect Expression
+brIf = brIfImpl
+
+foreign import brWithValueImpl :: Module -> String -> Expression -> Effect Expression
+
+-- | Unconditional branch to `label` carrying `value` (whose type must match the
+-- | target block's type).
+brWithValue :: Module -> String -> Expression -> Effect Expression
+brWithValue = brWithValueImpl
+
+foreign import brIfWithValueImpl :: Module -> String -> Expression -> Expression -> Effect Expression
+
+-- | Branch to `label` iff `condition` is non-zero, carrying `value` (whose type
+-- | must match the target block's type).
+brIfWithValue :: Module -> String -> Expression -> Expression -> Effect Expression
+brIfWithValue = brIfWithValueImpl
 
 foreign import callImpl :: Module -> String -> Array Expression -> Type -> Effect Expression
 
@@ -148,6 +202,12 @@ foreign import i32EqImpl :: Module -> Expression -> Expression -> Effect Express
 -- | `i32.eq`: 1 if the operands are equal, 0 otherwise.
 i32Eq :: Module -> Expression -> Expression -> Effect Expression
 i32Eq = i32EqImpl
+
+foreign import i32LtUImpl :: Module -> Expression -> Expression -> Effect Expression
+
+-- | `i32.lt_u`: 1 if `left < right` as unsigned, 0 otherwise.
+i32LtU :: Module -> Expression -> Expression -> Effect Expression
+i32LtU = i32LtUImpl
 
 foreign import ifImpl :: Module -> Expression -> Expression -> Expression -> Effect Expression
 
@@ -244,6 +304,9 @@ foreign import arrayGet :: Module -> Expression -> Expression -> Type -> Boolean
 -- | `array.set`: write `value` into element `index` of the (mutable) array
 -- | `ref`. Used to back-patch mutually-recursive closures' environments.
 foreign import arraySet :: Module -> Expression -> Expression -> Expression -> Effect Expression
+
+-- | `array.len`: the element count of array `ref`, as an `i32`.
+foreign import arrayLen :: Module -> Expression -> Effect Expression
 
 -- | `ref.cast`: narrow `ref` to value type `ty` (traps on mismatch).
 foreign import refCast :: Module -> Expression -> Type -> Effect Expression

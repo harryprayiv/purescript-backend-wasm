@@ -10,6 +10,7 @@ import Test.E2E.Slice0 as Slice0
 import Test.E2E.Slice1 as Slice1
 import Test.E2E.Slice2 as Slice2
 import Test.E2E.Slice2b as Slice2b
+import Test.E2E.Slice3 as Slice3
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
@@ -19,3 +20,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   Slice1.spec
   Slice2.spec
   Slice2b.spec
+  Slice3.spec

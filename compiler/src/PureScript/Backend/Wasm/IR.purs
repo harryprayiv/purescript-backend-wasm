@@ -15,6 +15,7 @@ import Prelude
 import Data.Generic.Rep (class Generic)
 import Data.Maybe (Maybe)
 import Data.Show.Generic (genericShow)
+import Data.Tuple (Tuple)
 
 -- | The wasm-level representation chosen for a value.
 -- |
@@ -131,8 +132,17 @@ data Rhs
   -- | Closures are arity-1 (PureScript curries), so the lowering decomposes a
   -- | multi-argument application into a left-to-right chain of these.
   | RApply Atom Atom
+  -- | Allocate a record (and, since dictionaries are records in CoreFn, a
+  -- | type-class dictionary): parallel arrays of **interned `i32` label ids** and
+  -- | their `eqref` values, given here as `(labelId, value)` pairs **sorted by
+  -- | labelId** (the canonical layout; ADR 0001 / 0007). Lowered to
+  -- | `struct.new $Rec [array.new_fixed $LabelIds ids, array.new_fixed $Vals vals]`.
+  | RMkRecord (Array (Tuple Int Atom))
+  -- | Project the value for an interned `i32` label id out of a record `eqref`,
+  -- | by runtime search of the label-id array (no static layout / type info
+  -- | needed — handles methods and superclass fields uniformly, ADR 0007).
+  | RProjLabel Atom Int
 
--- Slice 3: | RMkRecord (Array (Tuple String Atom)) | RProjLabel Atom String
 -- where needed: | RBox Rep Atom | RUnbox Rep Atom
 
 derive instance genericRhs :: Generic Rhs _

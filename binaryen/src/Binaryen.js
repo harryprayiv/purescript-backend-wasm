@@ -18,6 +18,8 @@ export const f64 = binaryen.f64;
 
 export const none = binaryen.none;
 
+export const auto = binaryen.auto;
+
 export const createType = (types) => binaryen.createType(types);
 
 // --- Expression builders ----------------------------------------------------
@@ -31,6 +33,23 @@ export const localSetImpl = (mod) => (index) => (value) => () =>
 
 export const blockImpl = (mod) => (children) => (ty) => () =>
   mod.block(null, children, ty);
+
+export const blockNamedImpl = (mod) => (name) => (children) => (ty) => () =>
+  mod.block(name, children, ty);
+
+export const loopImpl = (mod) => (label) => (body) => () =>
+  mod.loop(label, body);
+
+export const brImpl = (mod) => (label) => () => mod.br(label);
+
+export const brIfImpl = (mod) => (label) => (condition) => () =>
+  mod.br(label, condition);
+
+export const brWithValueImpl = (mod) => (label) => (value) => () =>
+  mod.br(label, undefined, value);
+
+export const brIfWithValueImpl = (mod) => (label) => (condition) => (value) => () =>
+  mod.br(label, condition, value);
 
 export const callImpl = (mod) => (target) => (operands) => (returnType) => () =>
   mod.call(target, operands, returnType);
@@ -46,6 +65,9 @@ export const i32MulImpl = (mod) => (left) => (right) => () =>
 
 export const i32EqImpl = (mod) => (left) => (right) => () =>
   mod.i32.eq(left, right);
+
+export const i32LtUImpl = (mod) => (left) => (right) => () =>
+  mod.i32.lt_u(left, right);
 
 export const ifImpl = (mod) => (cond) => (ifTrue) => (ifFalse) => () =>
   mod.if(cond, ifTrue, ifFalse);
@@ -156,6 +178,9 @@ export const arrayGet = (mod) => (ref) => (index) => (ty) => (signed) => () =>
 
 export const arraySet = (mod) => (ref) => (index) => (value) => () =>
   binaryen._BinaryenArraySet(mod.ptr, ref, index, value);
+
+export const arrayLen = (mod) => (ref) => () =>
+  binaryen._BinaryenArrayLen(mod.ptr, ref);
 
 export const refCast = (mod) => (ref) => (ty) => () =>
   binaryen._BinaryenRefCast(mod.ptr, ref, ty);

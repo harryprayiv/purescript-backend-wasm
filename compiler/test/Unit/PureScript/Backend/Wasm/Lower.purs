@@ -10,6 +10,7 @@ import Prelude
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), maybe)
+import Data.Tuple (Tuple(..))
 import Foreign.Object as Object
 import PureScript.Backend.Wasm.Lower (LowerError, lowerModule)
 import PureScript.Backend.Wasm.IR (Atom(..), AnfExpr(..), Branch(..), IRFunc, Program, RecBind(..), Rep(..), Rhs(..), Slot(..), VarRef(..))
@@ -52,6 +53,41 @@ letRec2 :: String -> CF.Expr -> String -> CF.Expr -> CF.Expr -> CF.Expr
 letRec2 n1 e1 n2 e2 body =
   CF.Let ann [ CF.Rec [ { ann, ident: n1, expr: e1 }, { ann, ident: n2, expr: e2 } ] ] body
 
+litInt :: Int -> CF.Expr
+litInt n = CF.Literal ann (CF.LitInt n)
+
+-- | A record literal `{ label: expr, … }`.
+litObj :: Array (Tuple String CF.Expr) -> CF.Expr
+litObj fields = CF.Literal ann (CF.LitObject fields)
+
+-- | `record.label`.
+accessor :: String -> CF.Expr -> CF.Expr
+accessor label record = CF.Accessor ann label record
+
+-- | An annotation carrying compiler metadata.
+annMeta :: CF.Meta -> CF.Ann
+annMeta m = ann { meta = Just m }
+
+-- | A type-class dictionary constructor declaration (a newtype identity tagged
+-- | `IsTypeClassConstructor`, as purs emits).
+dictCtorDecl :: String -> CF.Bind
+dictCtorDecl name = CF.NonRec (annMeta CF.IsTypeClassConstructor) name (lam "x" (lv "x"))
+
+-- | `case scrutinee of NtCtor v -> body` — a newtype unwrap (binder tagged
+-- | `IsNewtype`), the shape a type-class method accessor compiles from.
+newtypeCase :: String -> CF.Expr -> String -> CF.Expr -> CF.Expr
+newtypeCase ctorName scrutinee var body =
+  CF.Case ann [ scrutinee ]
+    [ { binders:
+          [ CF.ConstructorBinder (annMeta CF.IsNewtype)
+              (CF.Qualified (Just [ "T" ]) ctorName)
+              (CF.Qualified (Just [ "T" ]) ctorName)
+              [ CF.VarBinder ann var ]
+          ]
+      , result: Right body
+      }
+    ]
+
 lower :: Array CF.Bind -> Either LowerError Program
 lower decls = lowerModule
   { name: [ "T" ]
@@ -84,6 +120,8 @@ rhsAtoms = case _ of
   RProjField a _ -> [ a ]
   RMkClosure _ as -> as
   RApply f a -> [ f, a ]
+  RMkRecord pairs -> map (\(Tuple _ a) -> a) pairs
+  RProjLabel a _ -> [ a ]
 
 -- | Every `Atom` appearing in a block.
 blockAtoms :: AnfExpr -> Array Atom
@@ -109,6 +147,37 @@ mkDataTags b = Array.mapMaybe tagOf (allRhs b)
   tagOf = case _ of
     RMkData tag _ -> Just tag
     _ -> Nothing
+
+-- | The label-id lists of every `RMkRecord` in a block.
+recordLabelIds :: AnfExpr -> Array (Array Int)
+recordLabelIds b = Array.mapMaybe idsOf (allRhs b)
+  where
+  idsOf = case _ of
+    RMkRecord pairs -> Just (map (\(Tuple labelId _) -> labelId) pairs)
+    _ -> Nothing
+
+-- | The label ids of every `RProjLabel` in a block.
+projLabelIds :: AnfExpr -> Array Int
+projLabelIds b = Array.mapMaybe idOf (allRhs b)
+  where
+  idOf = case _ of
+    RProjLabel _ labelId -> Just labelId
+    _ -> Nothing
+
+-- | The argument counts of every `RCallKnown` in a block.
+callKnownArities :: AnfExpr -> Array Int
+callKnownArities b = Array.mapMaybe arityOf (allRhs b)
+  where
+  arityOf = case _ of
+    RCallKnown _ args -> Just (Array.length args)
+    _ -> Nothing
+
+hasSwitch :: AnfExpr -> Boolean
+hasSwitch = case _ of
+  Switch _ _ _ -> true
+  Let _ _ _ k -> hasSwitch k
+  LetRec _ k -> hasSwitch k
+  Return _ -> false
 
 isApply :: Rhs -> Boolean
 isApply = case _ of
@@ -267,3 +336,57 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
           Array.length prog.funcs `shouldEqual` 2
           (mkDataTags <<< _.body <$> exported "mkA" prog) `shouldEqual` Just [ 0 ]
           (mkDataTags <<< _.body <$> exported "mkB" prog) `shouldEqual` Just [ 1 ]
+
+  describe "records and dictionaries" do
+    it "lowers a record literal to RMkRecord with label ids sorted" do
+      -- r = { b: 2, a: 1 }  -- ids assigned by sorted label: a=0, b=1
+      let r = def "r" (litObj [ Tuple "b" (litInt 2), Tuple "a" (litInt 1) ])
+      case lower [ r ] of
+        Left err -> fail (show err)
+        Right prog ->
+          (recordLabelIds <<< _.body <$> exported "r" prog) `shouldEqual` Just [ [ 0, 1 ] ]
+
+    it "lowers a record accessor to a label-id projection" do
+      -- get r = r.a  -- "a" is the only label, so it interns to 0
+      let get = def "get" (lam "r" (accessor "a" (lv "r")))
+      case lower [ get ] of
+        Left err -> fail (show err)
+        Right prog ->
+          (projLabelIds <<< _.body <$> exported "get" prog) `shouldEqual` Just [ 0 ]
+
+    it "references a nullary top-level value as a (zero-argument) known call" do
+      -- v = 1 ; w = v  -- the bare reference to the CAF v becomes RCallKnown v []
+      let decls = [ def "v" (litInt 1), def "w" (qv "v") ]
+      case lower decls of
+        Left err -> fail (show err)
+        Right prog ->
+          (callKnownArities <<< _.body <$> exported "w" prog) `shouldEqual` Just [ 0 ]
+
+    it "erases a dictionary constructor application to its record" do
+      -- mkDict = D$Dict { a: 1 }  -- the newtype dict ctor is erased; only RMkRecord remains
+      let
+        decls =
+          [ dictCtorDecl "D$Dict"
+          , def "mkDict" (appE (qv "D$Dict") (litObj [ Tuple "a" (litInt 1) ]))
+          ]
+      case lower decls of
+        Left err -> fail (show err)
+        Right prog -> do
+          -- the dict ctor is not emitted as a function; only mkDict is
+          (_.export <$> prog.funcs) `shouldEqual` [ Just "mkDict" ]
+          (recordLabelIds <<< _.body <$> exported "mkDict" prog) `shouldEqual` Just [ [ 0 ] ]
+
+    it "compiles a newtype unwrap transparently (no Switch)" do
+      -- unwrap d = case d of D$Dict v -> v.a  -- a method accessor's shape
+      let
+        decls =
+          [ dictCtorDecl "D$Dict"
+          , def "unwrap" (lam "d" (newtypeCase "D$Dict" (lv "d") "v" (accessor "a" (lv "v"))))
+          ]
+      case lower decls of
+        Left err -> fail (show err)
+        Right prog -> case exported "unwrap" prog of
+          Nothing -> fail "expected an exported function unwrap"
+          Just fn -> do
+            hasSwitch fn.body `shouldEqual` false
+            projLabelIds fn.body `shouldEqual` [ 0 ]

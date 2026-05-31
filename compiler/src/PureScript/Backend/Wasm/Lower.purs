@@ -39,7 +39,7 @@ import Data.Foldable (foldl, foldr)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.String (joinWith)
 import Data.Traversable (traverse)
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple(..), fst)
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import PureScript.Backend.Wasm.Lower.FreeVars (freeVars)
@@ -56,6 +56,14 @@ type ModuleInfo =
   { knownFuncs :: Object Int
   , ctors :: Object CtorInfo
   , moduleName :: Array String
+  -- | Names of type-class dictionary constructors (decls tagged
+  -- | `IsTypeClassConstructor`). They are newtype identities (`\x -> x`) wrapping
+  -- | the dictionary record, so their application is erased (Slice 3, ADR 0007).
+  , dictCtors :: Object Unit
+  -- | Every record/dictionary label in the module, interned to a unique `i32`
+  -- | id. Records carry these ids (not strings) so projection is a string-free
+  -- | runtime search (ADR 0001 / 0007); the string runtime is deferred to Slice 4.
+  , labelIds :: Object Int
   }
 
 -- | The local environment plus the module facts. `locals` maps a CoreFn
@@ -66,6 +74,8 @@ type Env =
   , knownFuncs :: Object Int
   , ctors :: Object CtorInfo
   , moduleName :: Array String
+  , dictCtors :: Object Unit
+  , labelIds :: Object Int
   }
 
 -- | The Slice 0/1/2 foreign-primitive table (ADR 0002's `ForeignProvider`, hard
@@ -131,17 +141,29 @@ etaExpand callable arity = foldr (C.Abs synthAnn) saturatedBody params
 lowerArg :: Env -> C.Expr -> (Atom -> Lower AnfExpr) -> Lower AnfExpr
 lowerArg env expr k = case expr of
   C.Literal _ (C.LitInt n) -> k (ALitInt n)
+  -- A record literal (and so a type-class dictionary, after its newtype
+  -- constructor is erased) becomes a label-id-keyed record (ADR 0001 / 0007).
+  C.Literal _ (C.LitObject fields) -> lowerRecord env fields k
   C.Literal _ _ -> throw (UnsupportedExpr "non-Int literal")
+  -- `Prim.undefined` is the dummy argument applied to a superclass thunk; the
+  -- thunk ignores it, so any boxed value will do.
+  C.Var _ (Qualified (Just [ "Prim" ]) "undefined") -> k (ALitInt 0)
   C.Var _ (Qualified Nothing ident) -> resolveLocal env ident >>= k
   -- A bare reference to a known callable becomes a closure value (eta-expanded);
-  -- a nullary constructor is built directly.
+  -- a nullary constructor is built directly; a nullary top-level value (a CAF —
+  -- e.g. an instance dictionary) is *called* to produce its value.
   C.Var _ (Qualified (Just _) ident)
     | Just (Tuple _ arity) <- foreignIntrinsic ident -> lowerArg env (etaExpand expr arity) k
     | Just info <- Object.lookup ident env.ctors ->
         if info.arity == 0 then bindRhs (RMkData info.tag []) k
         else lowerArg env (etaExpand expr info.arity) k
-    | Just arity <- Object.lookup ident env.knownFuncs -> lowerArg env (etaExpand expr arity) k
+    | Just arity <- Object.lookup ident env.knownFuncs ->
+        if arity == 0 then bindRhs (RCallKnown (funcName env.moduleName ident) []) k
+        else lowerArg env (etaExpand expr arity) k
     | otherwise -> throw (UnsupportedExpr ("unapplied top-level reference: " <> ident))
+  C.Accessor _ label record -> lowerArg env record \recAtom -> do
+    labelId <- internLabel env label
+    bindRhs (RProjLabel recAtom labelId) k
   C.App _ _ _ -> lowerApp env (collectApp expr) k
   C.Abs _ param body -> do
     { codeName, captures } <- liftLambda Nothing env param body
@@ -154,6 +176,26 @@ lowerArgs env args k = case Array.uncons args of
   Nothing -> k []
   Just { head: e, tail } -> lowerArg env e \a -> lowerArgs env tail \as -> k (Array.cons a as)
 
+-- | The interned `i32` id of a record/dictionary label.
+internLabel :: Env -> String -> Lower Int
+internLabel env label = case Object.lookup label env.labelIds of
+  Just labelId -> pure labelId
+  Nothing -> throw (UnsupportedExpr ("unknown record label: " <> label))
+
+-- | Lower a record literal's fields (left-to-right) to `(labelId, atom)` pairs.
+lowerFields :: Env -> Array (Tuple String C.Expr) -> (Array (Tuple Int Atom) -> Lower AnfExpr) -> Lower AnfExpr
+lowerFields env fields k = case Array.uncons fields of
+  Nothing -> k []
+  Just { head: Tuple label e, tail } -> do
+    labelId <- internLabel env label
+    lowerArg env e \a -> lowerFields env tail \rest -> k (Array.cons (Tuple labelId a) rest)
+
+-- | Lower a record literal to an `RMkRecord`, its `(labelId, value)` pairs sorted
+-- | by id for a canonical layout (ADR 0001 / 0007).
+lowerRecord :: Env -> Array (Tuple String C.Expr) -> (Atom -> Lower AnfExpr) -> Lower AnfExpr
+lowerRecord env fields k =
+  lowerFields env fields \pairs -> bindRhs (RMkRecord (Array.sortWith fst pairs)) k
+
 -- | Lower an application spine. A known intrinsic / constructor / top-level
 -- | function dispatches on how the argument count compares to its arity:
 -- | saturated → a direct primitive / allocation / call; under-applied → a
@@ -162,6 +204,12 @@ lowerArgs env args k = case Array.uncons args of
 -- | Any other head (a local closure value or a lambda) is an `RApply` chain.
 lowerApp :: Env -> { head :: C.Expr, args :: Array C.Expr } -> (Atom -> Lower AnfExpr) -> Lower AnfExpr
 lowerApp env { head, args } k = case head of
+  -- A dictionary constructor is a newtype identity wrapping its record, so the
+  -- application `C$Dict rec` erases to `rec` (Slice 3, ADR 0007).
+  C.Var _ (Qualified (Just _) ident)
+    | Object.member ident env.dictCtors -> case args of
+        [ rec ] -> lowerArg env rec k
+        _ -> throw (UnsupportedExpr "dictionary constructor must take exactly one record")
   C.Var _ (Qualified (Just _) ident)
     | Just (Tuple intr arity) <- foreignIntrinsic ident -> applyArity arity (RPrim intr)
     | Just info <- Object.lookup ident env.ctors -> applyArity info.arity (RMkData info.tag)
@@ -290,13 +338,40 @@ lowerRecBind env (Tuple rb slot) = case rb.expr of
   _ -> throw (UnsupportedExpr "a recursive let binding must be a function")
 
 -- | Compile a `case` into a `Switch` on the scrutinee's constructor tag.
+-- |
+-- | A single-alternative match on a **newtype** constructor (in particular the
+-- | `\dict -> case dict of C$Dict v -> …` a type-class method accessor unwraps to)
+-- | carries no runtime tag — the newtype is erased — so it lowers transparently:
+-- | the sub-binder is bound directly to the scrutinee, with no `Switch`.
 lowerCase :: Env -> Array C.Expr -> Array C.CaseAlternative -> Lower AnfExpr
 lowerCase env scrutinees alternatives = case scrutinees of
+  [ scrutinee ]
+    | Just { var, body } <- newtypeAlternative alternatives ->
+        lowerArg env scrutinee \scrutAtom ->
+          lowerTail (bindNewtypeVar env var scrutAtom) body
   [ scrutinee ] ->
     lowerArg env scrutinee \scrutAtom -> do
       branches <- traverse (lowerAlternative env scrutAtom) alternatives
       pure (Switch scrutAtom branches Nothing)
   _ -> throw (UnsupportedExpr "Slice 1 supports a single case scrutinee")
+
+-- | Recognise a single, unguarded alternative whose binder is a newtype
+-- | constructor with one var / wildcard sub-binder, returning the bound name (if
+-- | any) and the body. Newtype-ness is the `IsNewtype` meta the CoreFn binder
+-- | carries.
+newtypeAlternative :: Array C.CaseAlternative -> Maybe { var :: Maybe String, body :: C.Expr }
+newtypeAlternative = case _ of
+  [ { binders: [ C.ConstructorBinder ann _ _ subBinders ], result: Right body } ]
+    | ann.meta == Just C.IsNewtype -> case subBinders of
+        [ C.VarBinder _ name ] -> Just { var: Just name, body }
+        [ C.NullBinder _ ] -> Just { var: Nothing, body }
+        _ -> Nothing
+  _ -> Nothing
+
+bindNewtypeVar :: Env -> Maybe String -> Atom -> Env
+bindNewtypeVar env var scrutAtom = case var of
+  Just name -> env { locals = Object.insert name scrutAtom env.locals }
+  Nothing -> env
 
 -- | One alternative → one `Branch`, with the constructor's sub-binders bound as
 -- | field projections inside the branch body.
@@ -339,7 +414,15 @@ lowerTopFunc :: ModuleInfo -> Tuple String C.Expr -> Lower IRFunc
 lowerTopFunc info (Tuple ident expr) = do
   let { params, body } = peelAbs expr
   let locals = Object.fromFoldable (Array.mapWithIndex (\i p -> Tuple p (AVar (Local (Slot i)))) params)
-  let env = { locals, knownFuncs: info.knownFuncs, ctors: info.ctors, moduleName: info.moduleName }
+  let
+    env =
+      { locals
+      , knownFuncs: info.knownFuncs
+      , ctors: info.ctors
+      , moduleName: info.moduleName
+      , dictCtors: info.dictCtors
+      , labelIds: info.labelIds
+      }
   modify_ _ { slot = Array.length params }
   block <- lowerTail env body
   count <- gets _.slot
@@ -380,23 +463,64 @@ topLevelBindings = (_ >>= flatten)
     NonRec _ ident expr -> [ Tuple ident expr ]
     Rec rs -> map (\r -> Tuple r.ident r.expr) rs
 
--- | The non-constructor top-level functions, mapped to their arity.
-collectFuncs :: Array Bind -> Object Int
-collectFuncs decls = Object.fromFoldable (Array.mapMaybe keep (topLevelBindings decls))
+-- | The non-constructor top-level functions, mapped to their arity. Dictionary
+-- | constructors are excluded: they are newtype identities, erased at their use
+-- | sites rather than emitted (ADR 0007).
+collectFuncs :: Object Unit -> Array Bind -> Object Int
+collectFuncs dictCtors decls = Object.fromFoldable (Array.mapMaybe keep (topLevelBindings decls))
   where
   keep (Tuple ident expr)
-    | isConstructor expr = Nothing
+    | isConstructor expr || Object.member ident dictCtors = Nothing
     | otherwise = Just (Tuple ident (Array.length (peelAbs expr).params))
 
 -- | Top-level definitions that become wasm functions: every binding (including
--- | `Rec`-group members) that is not a constructor.
-functionDecls :: Array Bind -> Array (Tuple String C.Expr)
-functionDecls = Array.filter (\(Tuple _ expr) -> not (isConstructor expr)) <<< topLevelBindings
+-- | `Rec`-group members) that is neither a data constructor nor a (newtype-erased)
+-- | dictionary constructor.
+functionDecls :: Object Unit -> Array Bind -> Array (Tuple String C.Expr)
+functionDecls dictCtors =
+  Array.filter (\(Tuple ident expr) -> not (isConstructor expr) && not (Object.member ident dictCtors))
+    <<< topLevelBindings
 
 isConstructor :: C.Expr -> Boolean
 isConstructor = case _ of
   C.Constructor _ _ _ _ -> true
   _ -> false
+
+-- | Type-class dictionary constructors: top-level bindings tagged
+-- | `IsTypeClassConstructor`. Each is a newtype identity (`\x -> x`) wrapping the
+-- | dictionary record, so its applications are erased (ADR 0007).
+collectDictCtors :: Array Bind -> Object Unit
+collectDictCtors decls = Object.fromFoldable (Array.mapMaybe dictCtorOf decls)
+  where
+  dictCtorOf = case _ of
+    NonRec ann ident _ | ann.meta == Just C.IsTypeClassConstructor -> Just (Tuple ident unit)
+    _ -> Nothing
+
+-- | Intern every record/dictionary label in the module to a unique `i32` id,
+-- | assigned by sorted label order so the mapping is deterministic across
+-- | construction and projection sites.
+collectLabels :: Array Bind -> Object Int
+collectLabels decls =
+  Object.fromFoldable (Array.mapWithIndex (\i l -> Tuple l i) (Array.sort (Array.nub (decls >>= bindLabels))))
+  where
+  bindLabels = case _ of
+    NonRec _ _ e -> exprLabels e
+    Rec rs -> rs >>= \r -> exprLabels r.expr
+  exprLabels = case _ of
+    C.Literal _ (C.LitObject kvs) -> kvs >>= \(Tuple l v) -> Array.cons l (exprLabels v)
+    C.Literal _ (C.LitArray es) -> es >>= exprLabels
+    C.Literal _ _ -> []
+    C.Constructor _ _ _ _ -> []
+    C.Accessor _ l e -> Array.cons l (exprLabels e)
+    C.ObjectUpdate _ e _ kvs -> exprLabels e <> (kvs >>= \(Tuple l v) -> Array.cons l (exprLabels v))
+    C.Abs _ _ b -> exprLabels b
+    C.App _ f a -> exprLabels f <> exprLabels a
+    C.Var _ _ -> []
+    C.Case _ ss alts -> (ss >>= exprLabels) <> (alts >>= altLabels)
+    C.Let _ binds b -> (binds >>= bindLabels) <> exprLabels b
+  altLabels alt = case alt.result of
+    Right e -> exprLabels e
+    Left guards -> guards >>= \g -> exprLabels g.guard <> exprLabels g.expression
 
 -- | Lower a whole decoded CoreFn module to a Slice 2 IR `Program`. The lifted
 -- | code functions accumulated during lowering are appended to the program's
@@ -404,12 +528,15 @@ isConstructor = case _ of
 lowerModule :: Module -> Either LowerError Program
 lowerModule m = do
   let
+    dictCtors = collectDictCtors m.decls
     info =
-      { knownFuncs: collectFuncs m.decls
+      { knownFuncs: collectFuncs dictCtors m.decls
       , ctors: collectCtors m.decls
       , moduleName: m.name
+      , dictCtors
+      , labelIds: collectLabels m.decls
       }
   Tuple funcs st <- runStateT
-    (traverse (lowerTopFunc info) (functionDecls m.decls))
+    (traverse (lowerTopFunc info) (functionDecls dictCtors m.decls))
     { slot: 0, lifted: [], nextCode: 0 }
   pure { funcs: funcs <> st.lifted }

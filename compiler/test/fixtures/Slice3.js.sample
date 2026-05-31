@@ -1,0 +1,1 @@
+export const addI = x => y => x + y;
