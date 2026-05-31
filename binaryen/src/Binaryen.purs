@@ -39,10 +39,12 @@ module Binaryen
   , HeapType
   , TypeBuilder
   , eqref
+  , funcref
   , setFeaturesGC
   , typeBuilderCreate
   , typeBuilderSetStructType
   , typeBuilderSetArrayType
+  , typeBuilderSetSignatureType
   , typeBuilderGetTempHeapType
   , typeBuilderGetTempRefType
   , typeBuilderBuildAndDispose
@@ -52,6 +54,8 @@ module Binaryen
   , arrayNewFixed
   , arrayGet
   , refCast
+  , refFunc
+  , callRef
   ) where
 
 import Prelude
@@ -180,6 +184,12 @@ foreign import data TypeBuilder :: Prim.Type
 -- | struct/array reference; the backend's boxed value type.
 foreign import eqref :: Type
 
+-- | The generic `funcref` value type (any function reference). Closures store
+-- | their code as a `funcref` and `ref.cast` it to the precise `(ref $Code)` at
+-- | the call site, which keeps the closure struct type out of the function
+-- | type's recursion group (so the code function's own type matches).
+foreign import funcref :: Type
+
 -- | Enable the GC and reference-types features. Required before validating or
 -- | emitting a module that uses any construct below.
 foreign import setFeaturesGC :: Module -> Effect Unit
@@ -193,6 +203,11 @@ foreign import typeBuilderSetStructType
 
 -- | Define slot `index` as an array of `element`, with the given mutability.
 foreign import typeBuilderSetArrayType :: TypeBuilder -> Int -> Type -> Boolean -> Effect Unit
+
+-- | Define slot `index` as a function signature. `params` and `results` are
+-- | each a single (possibly tuple) value type — build a multi-parameter tuple
+-- | with `createType`, and pass a lone type directly for a single result.
+foreign import typeBuilderSetSignatureType :: TypeBuilder -> Int -> Type -> Type -> Effect Unit
 
 -- | A temporary heap type referring to slot `index`. It may be used in other
 -- | slot definitions before that slot is defined — this is what lets recursive
@@ -227,6 +242,13 @@ foreign import arrayGet :: Module -> Expression -> Expression -> Type -> Boolean
 
 -- | `ref.cast`: narrow `ref` to value type `ty` (traps on mismatch).
 foreign import refCast :: Module -> Expression -> Type -> Effect Expression
+
+-- | `ref.func`: a reference to the named function, typed by heap type `ht`.
+foreign import refFunc :: Module -> String -> HeapType -> Effect Expression
+
+-- | `call_ref`: indirect call through a typed function reference `target` (of
+-- | function heap type `ht`) with the given operands. Non-tail.
+foreign import callRef :: Module -> Expression -> Array Expression -> HeapType -> Effect Expression
 
 foreign import addFunctionImpl
   :: Module

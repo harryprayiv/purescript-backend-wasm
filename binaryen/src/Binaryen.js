@@ -63,6 +63,8 @@ export const i32ConstImpl = (mod) => (value) => () =>
 
 export const eqref = binaryen.eqref;
 
+export const funcref = binaryen.funcref;
+
 export const setFeaturesGC = (mod) => () => {
   mod.setFeatures(binaryen.Features.GC | binaryen.Features.ReferenceTypes);
 };
@@ -98,6 +100,9 @@ export const typeBuilderSetArrayType = (tb) => (index) => (elementType) => (muta
   const notPacked = binaryen._BinaryenPackedTypeNotPacked();
   binaryen._TypeBuilderSetArrayType(tb, index, elementType, notPacked, mutable ? 1 : 0);
 };
+
+export const typeBuilderSetSignatureType = (tb) => (index) => (params) => (results) => () =>
+  binaryen._TypeBuilderSetSignatureType(tb, index, params, results);
 
 export const typeBuilderGetTempHeapType = (tb) => (index) => () =>
   binaryen._TypeBuilderGetTempHeapType(tb, index);
@@ -151,6 +156,18 @@ export const arrayGet = (mod) => (ref) => (index) => (ty) => (signed) => () =>
 
 export const refCast = (mod) => (ref) => (ty) => () =>
   binaryen._BinaryenRefCast(mod.ptr, ref, ty);
+
+// ref.func takes the function name as a C string, so go through the high-level
+// binaryen.js method which marshals it (the raw _BinaryenRefFunc would need the
+// string copied into the emscripten heap).
+export const refFunc = (mod) => (name) => (ht) => () => mod.ref.func(name, ht);
+
+export const callRef = (mod) => (target) => (operands) => (ht) => () => {
+  const ptr = mallocI32(operands);
+  const expr = binaryen._BinaryenCallRef(mod.ptr, target, ptr, operands.length, ht, false);
+  binaryen._free(ptr);
+  return expr;
+};
 
 // --- Module mutation --------------------------------------------------------
 

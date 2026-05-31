@@ -76,6 +76,16 @@ spec = describe "Binaryen (unit)" do
       wat `shouldSatisfy` String.contains (Pattern "array.get")
       wat `shouldSatisfy` String.contains (Pattern "ref.cast")
 
+  describe "Wasm GC closures (signature type, ref.func, call_ref)" do
+    it "builds and validates a closure invoked through call_ref" do
+      { ok } <- liftEffect buildClosure
+      ok `shouldEqual` true
+
+    it "emits ref.func and call_ref" do
+      { wat } <- liftEffect buildClosure
+      wat `shouldSatisfy` String.contains (Pattern "ref.func")
+      wat `shouldSatisfy` String.contains (Pattern "call_ref")
+
   describe "emission" do
     it "wraps emitText output in a (module ...) form" do
       wat <- liftEffect $ withModule B.emitText
@@ -163,6 +173,58 @@ buildGc = withModule \mod -> do
       ok <- B.validate mod
       wat <- B.emitText mod
       pure { ok, wat }
+    _ -> pure { ok: false, wat: "<expected 3 heap types>" }
+
+-- | Build a closure and call it through `call_ref`, exercising the closure FFI:
+-- | a function signature heap type (`$Code`), a closure struct holding a
+-- | `funcref` + captured-env array (`$Clo`), `ref.func` to capture the code, and
+-- | `call_ref` (after casting the stored `funcref` to `(ref $Code)`) to invoke
+-- | it. The closure's code ignores its environment and returns its argument, so
+-- | this stays focused on the call mechanism.
+-- |
+-- |   $Vals = (array (mut eqref)); $Int = (struct i32)
+-- |   $Clo  = (struct funcref (ref $Vals))           -- main rec group
+-- |   $Code = (func (ref $Clo) eqref -> eqref)        -- standalone (so addFunction's type matches)
+buildClosure :: Effect { ok :: Boolean, wat :: String }
+buildClosure = withModule \mod -> do
+  B.setFeaturesGC mod
+  tb1 <- B.typeBuilderCreate 3
+  B.typeBuilderSetArrayType tb1 0 B.eqref true
+  B.typeBuilderSetStructType tb1 1 [ { ty: B.i32, mutable: false } ]
+  refValsTmp <- B.typeBuilderGetTempHeapType tb1 0 >>= \h -> B.typeBuilderGetTempRefType tb1 h false
+  B.typeBuilderSetStructType tb1 2 [ { ty: B.funcref, mutable: false }, { ty: refValsTmp, mutable: false } ]
+  g1 <- B.typeBuilderBuildAndDispose tb1 3
+  case g1 of
+    [ valsHt, intHt, cloHt ] -> do
+      let refClo = B.typeFromHeapType cloHt false
+      tb2 <- B.typeBuilderCreate 1
+      B.typeBuilderSetSignatureType tb2 0 (B.createType [ refClo, B.eqref ]) B.eqref
+      g2 <- B.typeBuilderBuildAndDispose tb2 1
+      case g2 of
+        [ codeHt ] -> do
+          let refCode = B.typeFromHeapType codeHt false
+          -- code(clo, y) = y
+          y <- B.localGet mod 1 B.eqref
+          _ <- B.addFunction mod "idCode" (B.createType [ refClo, B.eqref ]) B.eqref [] y
+          -- run() = (closure idCode [box 0]).code(closure, box 5)
+          dummy <- B.i32Const mod 0 >>= \z -> B.structNew mod intHt [ z ]
+          envArr <- B.arrayNewFixed mod valsHt [ dummy ]
+          fref <- B.refFunc mod "idCode" codeHt
+          closure <- B.structNew mod cloHt [ fref, envArr ]
+          setC <- B.localSet mod 0 closure
+          codeF <- B.localGet mod 0 refClo
+            >>= \c -> B.structGet mod 0 c B.funcref false
+              >>= \f -> B.refCast mod f refCode
+          cloArg <- B.localGet mod 0 refClo
+          arg5 <- B.i32Const mod 5 >>= \f -> B.structNew mod intHt [ f ]
+          callr <- B.callRef mod codeF [ cloArg, arg5 ] codeHt
+          body <- B.block mod [ setC, callr ] B.eqref
+          _ <- B.addFunction mod "run" B.none B.eqref [ refClo ] body
+          _ <- B.addFunctionExport mod "run" "run"
+          ok <- B.validate mod
+          wat <- B.emitText mod
+          pure { ok, wat }
+        _ -> pure { ok: false, wat: "<expected 1 code heap type>" }
     _ -> pure { ok: false, wat: "<expected 3 heap types>" }
 
 -- | Byte length of an emitted wasm binary.
