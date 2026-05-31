@@ -11,8 +11,8 @@ import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), maybe)
 import Foreign.Object as Object
-import PureScript.Backend.Wasm.Lower (LowerError(..), lowerModule)
-import PureScript.Backend.Wasm.IR (Atom(..), AnfExpr(..), Branch(..), IRFunc, Program, Rep(..), Rhs(..), VarRef(..))
+import PureScript.Backend.Wasm.Lower (LowerError, lowerModule)
+import PureScript.Backend.Wasm.IR (Atom(..), AnfExpr(..), Branch(..), IRFunc, Program, Rep(..), Rhs(..), Slot(..), VarRef(..))
 import PureScript.CoreFn as CF
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
@@ -42,6 +42,10 @@ def name e = CF.NonRec ann name e
 -- | A data-constructor declaration (`name` of type `typeName`, with `fields`).
 ctor :: String -> String -> Array String -> CF.Bind
 ctor typeName name fields = CF.NonRec ann name (CF.Constructor ann typeName name fields)
+
+-- | `let { name = recExpr } in body`, as a single-binding recursive `let`.
+letRec :: String -> CF.Expr -> CF.Expr -> CF.Expr
+letRec name recExpr body = CF.Let ann [ CF.Rec [ { ann, ident: name, expr: recExpr } ] ] body
 
 lower :: Array CF.Bind -> Either LowerError Program
 lower decls = lowerModule
@@ -107,6 +111,13 @@ isApply = case _ of
 isPrim :: Rhs -> Boolean
 isPrim = case _ of
   RPrim _ _ -> true
+  _ -> false
+
+-- | An application of the closure's own parameter (local 0) — i.e. a recursive
+-- | self-call routed through the closure rather than through a captured copy.
+selfApply :: Rhs -> Boolean
+selfApply = case _ of
+  RApply (AVar (Local (Slot 0))) _ -> true
   _ -> false
 
 exported :: String -> Program -> Maybe IRFunc
@@ -179,13 +190,29 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
             Array.any isPrim (allRhs fn.body) `shouldEqual` true
             Array.any isApply (allRhs fn.body) `shouldEqual` false
 
-    it "rejects partial application of a known multi-argument function" do
+    it "lowers a partial application of a known function to a closure (PAP)" do
       -- two a b = addI a b ; p x = two x   -- `two x` is under-applied
       let two = def "two" (lam "a" (lam "b" (appE (appE (qv "addI") (lv "a")) (lv "b"))))
       let p = def "p" (lam "x" (appE (qv "two") (lv "x")))
       case lower [ two, p ] of
-        Left err -> err `shouldEqual` NotSaturated "two" 2 1
-        Right _ -> fail "expected partial application to be rejected"
+        Left err -> fail (show err)
+        Right prog -> case exported "p" prog of
+          Nothing -> fail "expected an exported function p"
+          Just fn -> do
+            -- the missing argument is supplied by eta-expanding `two` into a
+            -- closure (lifted code functions) which is then applied
+            (Array.length (closureCaptures fn.body) > 0) `shouldEqual` true
+            Array.any isApply (allRhs fn.body) `shouldEqual` true
+
+  describe "recursion" do
+    it "compiles a self-recursive let by recurring through the closure parameter" do
+      -- f x = let go m = go m in go x   (go refers to itself)
+      let f = def "f" (lam "x" (letRec "go" (lam "m" (appE (lv "go") (lv "m"))) (appE (lv "go") (lv "x"))))
+      case lower [ f ] of
+        Left err -> fail (show err)
+        Right prog -> case Array.head (liftedFuncs prog) of
+          Nothing -> fail "expected a lifted code function for go"
+          Just code -> Array.any selfApply (allRhs code.body) `shouldEqual` true
 
   describe "data types" do
     it "assigns constructor tags by declaration order and erases the constructors" do

@@ -45,7 +45,10 @@ type RuntimeTypes =
   , refCode :: B.Type
   }
 
-type Ctx = { mod :: B.Module, rt :: RuntimeTypes }
+-- | `params` is the representation of the function currently being generated,
+-- | so a `local.get` uses the slot's actual type (a code function's local 0 is
+-- | `(ref $Clo)`, not `eqref`).
+type Ctx = { mod :: B.Module, rt :: RuntimeTypes, params :: Array Rep }
 
 -- | Build a Binaryen module from a Slice 2 IR `Program`: enable GC, build the
 -- | runtime type group, add every function (`eqref` calling convention; lifted
@@ -56,7 +59,7 @@ buildModule prog = do
   mod <- B.createModule
   B.setFeaturesGC mod
   rt <- buildRuntimeTypes mod
-  let ctx = { mod, rt }
+  let ctx = { mod, rt, params: [] }
   traverse_ (addFunc ctx) prog.funcs
   traverse_ (addExportWrapper ctx) prog.funcs
   pure mod
@@ -114,7 +117,7 @@ funcNameStr (FuncName n) = n
 -- | matches `$Code`, so `call_ref` against it validates.
 addFunc :: Ctx -> IRFunc -> Effect Unit
 addFunc ctx fn = do
-  body <- genBody ctx fn.body
+  body <- genBody (ctx { params = fn.params }) fn.body
   let params = B.createType (repType ctx <$> fn.params)
   let varTypes = Array.replicate (fn.localCount - Array.length fn.params) B.eqref
   _ <- B.addFunction ctx.mod (funcNameStr fn.name) params B.eqref varTypes body
@@ -184,10 +187,18 @@ genSwitch ctx scrutAtom branches dflt = chain branches
       elseE <- chain tail
       B.if_ ctx.mod cond thenE elseE
 
+-- | The wasm type of local `i` in the current function: a parameter takes its
+-- | declared representation (local 0 of a code function is `(ref $Clo)`), while
+-- | `Let`-bound locals are always `eqref`.
+localType :: Ctx -> Int -> B.Type
+localType ctx i = case Array.index ctx.params i of
+  Just rep -> repType ctx rep
+  Nothing -> B.eqref
+
 genAtom :: Ctx -> Atom -> Effect B.Expression
 genAtom ctx = case _ of
   ALitInt n -> B.i32Const ctx.mod n >>= boxInt ctx
-  AVar (Local (Slot index)) -> B.localGet ctx.mod index B.eqref
+  AVar (Local (Slot index)) -> B.localGet ctx.mod index (localType ctx index)
   -- A captured variable: read the env array from the closure (local 0, the only
   -- `(ref $Clo)`-typed local — `EnvField` appears only in lifted code functions)
   -- and index into it.

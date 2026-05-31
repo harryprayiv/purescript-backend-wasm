@@ -1,0 +1,3 @@
+// FFI for Slice2b.purs.sample (regeneration only; the backend supplies its own
+// i32 implementation).
+export const addI = (x) => (y) => (x + y) | 0;

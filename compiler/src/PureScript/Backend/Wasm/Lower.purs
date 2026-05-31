@@ -2,9 +2,7 @@
 -- |
 -- | This is the **Slice 2** lowering: Slice 0/1 (scalar Int, ADTs, pattern
 -- | matching) plus **closures**, under the uniform `eqref` convention
--- | (ADR 0004) and eval/apply (ADR 0003). Scope is *full-apply only* — closures
--- | are created and applied exactly; partial application of multi-argument
--- | functions and recursive `let` are reported, not compiled.
+-- | (ADR 0004) and eval/apply (ADR 0003).
 -- |
 -- | The Slice 2 additions:
 -- |
@@ -14,10 +12,18 @@
 -- |     them back as `EnvField`s. Lifted functions accumulate in the lowering
 -- |     state and are appended to the program.
 -- |
--- |   * **Unknown application.** When an application head is not a known
--- |     intrinsic / constructor / top-level function (i.e. it is a local closure
--- |     value or a lambda), it lowers to `RApply` — a `call_ref` through the
--- |     closure (ADR 0003 eval/apply), one argument at a time.
+-- |   * **eval/apply application.** A known intrinsic / constructor / top-level
+-- |     function applied to its exact arity is a direct primitive / allocation /
+-- |     call. Otherwise — an unknown head (local closure or lambda), or a
+-- |     partial or over-application of a known callable — it goes through
+-- |     `RApply` (`call_ref`), eta-expanding the callable to a closure where
+-- |     needed.
+-- |
+-- |   * **Recursion.** Top-level `Rec` groups compile as ordinary module
+-- |     functions calling one another by name. A single-binding recursive `let`
+-- |     recurs through the code function's own closure parameter (no knot-tying).
+-- |     Mutually-recursive `let` groups (which would need allocate-then-patch
+-- |     knot-tying) are not yet supported.
 module PureScript.Backend.Wasm.Lower
   ( lowerModule
   , module ReExport
@@ -28,7 +34,7 @@ import Prelude
 import Control.Monad.State (gets, modify_, runStateT)
 import Data.Array as Array
 import Data.Either (Either(..))
-import Data.Foldable (foldl)
+import Data.Foldable (foldl, foldr)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.String (joinWith)
 import Data.Traversable (traverse)
@@ -102,6 +108,23 @@ bindRhs rhs k = do
   rest <- k (AVar (Local slot))
   pure (Let slot Boxed rhs rest)
 
+-- | A zero source annotation for synthesised CoreFn nodes.
+synthAnn :: C.Ann
+synthAnn = { meta: Nothing, span: { start: origin, end: origin } }
+  where
+  origin = { line: 0, column: 0 }
+
+-- | Eta-expand a callable reference (a function / intrinsic / constructor) of
+-- | the given arity into `\x0 .. x(n-1) -> callable x0 .. x(n-1)`, so a
+-- | non-saturated use can be lowered as a closure through the ordinary lambda
+-- | lifting. The synthesised body is always a *saturated* application, so this
+-- | does not recurse back into the non-saturated case.
+etaExpand :: C.Expr -> Int -> C.Expr
+etaExpand callable arity = foldr (C.Abs synthAnn) saturatedBody params
+  where
+  params = (\i -> "$x" <> show i) <$> Array.range 0 (arity - 1)
+  saturatedBody = foldl (\f p -> C.App synthAnn f (C.Var synthAnn (Qualified Nothing p))) callable params
+
 -- | Reduce an expression to a trivial `Atom`, threading any computation into
 -- | `Let`s that wrap the continuation `k`.
 lowerArg :: Env -> C.Expr -> (Atom -> Lower AnfExpr) -> Lower AnfExpr
@@ -109,14 +132,18 @@ lowerArg env expr k = case expr of
   C.Literal _ (C.LitInt n) -> k (ALitInt n)
   C.Literal _ _ -> throw (UnsupportedExpr "non-Int literal")
   C.Var _ (Qualified Nothing ident) -> resolveLocal env ident >>= k
-  C.Var _ (Qualified (Just _) ident) -> case Object.lookup ident env.ctors of
-    Just info
-      | info.arity == 0 -> bindRhs (RMkData info.tag []) k
-      | otherwise -> throw (UnsupportedExpr ("partially-applied constructor: " <> ident))
-    Nothing -> throw (UnsupportedExpr ("unapplied top-level reference: " <> ident))
+  -- A bare reference to a known callable becomes a closure value (eta-expanded);
+  -- a nullary constructor is built directly.
+  C.Var _ (Qualified (Just _) ident)
+    | Just (Tuple _ arity) <- foreignIntrinsic ident -> lowerArg env (etaExpand expr arity) k
+    | Just info <- Object.lookup ident env.ctors ->
+        if info.arity == 0 then bindRhs (RMkData info.tag []) k
+        else lowerArg env (etaExpand expr info.arity) k
+    | Just arity <- Object.lookup ident env.knownFuncs -> lowerArg env (etaExpand expr arity) k
+    | otherwise -> throw (UnsupportedExpr ("unapplied top-level reference: " <> ident))
   C.App _ _ _ -> lowerApp env (collectApp expr) k
   C.Abs _ param body -> do
-    { codeName, captures } <- liftLambda env param body
+    { codeName, captures } <- liftLambda Nothing env param body
     bindRhs (RMkClosure codeName captures) k
   _ -> throw (UnsupportedExpr "unsupported expression in argument position")
 
@@ -127,27 +154,37 @@ lowerArgs env args k = case Array.uncons args of
   Just { head: e, tail } -> lowerArg env e \a -> lowerArgs env tail \as -> k (Array.cons a as)
 
 -- | Lower an application spine. A known intrinsic / constructor / top-level
--- | function applied saturated is a direct primitive / allocation / call; any
--- | other head (a local closure value or a lambda) is an `RApply` via
--- | `call_ref`.
+-- | function dispatches on how the argument count compares to its arity:
+-- | saturated → a direct primitive / allocation / call; under-applied → a
+-- | partial application (eta-expand to a closure, apply what we have);
+-- | over-applied → call saturated, then apply the rest through the result.
+-- | Any other head (a local closure value or a lambda) is an `RApply` chain.
 lowerApp :: Env -> { head :: C.Expr, args :: Array C.Expr } -> (Atom -> Lower AnfExpr) -> Lower AnfExpr
 lowerApp env { head, args } k = case head of
   C.Var _ (Qualified (Just _) ident)
-    | Just (Tuple intr arity) <- foreignIntrinsic ident ->
-        saturated ident arity \atoms -> bindRhs (RPrim intr atoms) k
-    | Just info <- Object.lookup ident env.ctors ->
-        saturated ident info.arity \atoms -> bindRhs (RMkData info.tag atoms) k
-    | Just arity <- Object.lookup ident env.knownFuncs ->
-        saturated ident arity \atoms -> bindRhs (RCallKnown (funcName env.moduleName ident) atoms) k
+    | Just (Tuple intr arity) <- foreignIntrinsic ident -> applyArity arity (RPrim intr)
+    | Just info <- Object.lookup ident env.ctors -> applyArity info.arity (RMkData info.tag)
+    | Just arity <- Object.lookup ident env.knownFuncs -> applyArity arity (RCallKnown (funcName env.moduleName ident))
     | otherwise -> throw (UnsupportedExpr ("unknown callee: " <> ident))
   _ ->
     lowerArg env head \fAtom ->
       lowerArgs env args \atoms ->
         applyChain fAtom atoms k
   where
-  saturated name arity withAtoms =
-    if Array.length args == arity then lowerArgs env args withAtoms
-    else throw (NotSaturated name arity (Array.length args))
+  applyArity arity makeRhs =
+    let
+      n = Array.length args
+    in
+      if n == arity then lowerArgs env args \atoms -> bindRhs (makeRhs atoms) k
+      else if n < arity then
+        lowerArg env (etaExpand head arity) \fAtom ->
+          lowerArgs env args \atoms ->
+            applyChain fAtom atoms k
+      else
+        lowerArgs env (Array.take arity args) \saturating ->
+          bindRhs (makeRhs saturating) \result ->
+            lowerArgs env (Array.drop arity args) \extra ->
+              applyChain result extra k
 
 -- | Apply a closure atom to a list of argument atoms one at a time, each a
 -- | single-argument `RApply` whose result feeds the next (arity-1 closures).
@@ -158,19 +195,33 @@ applyChain f args k = case Array.uncons args of
 
 -- | Lift a `C.Abs` to a top-level code function and return its name plus the
 -- | atoms to capture (the lambda's free locals, resolved in the current scope).
-liftLambda :: Env -> String -> C.Expr -> Lower { codeName :: FuncName, captures :: Array Atom }
-liftLambda env param body = do
-  let frees = freeVars [ param ] body
+-- |
+-- | `self` names a binding the lambda may recursively refer to (a `let rec`).
+-- | Rather than capturing it — which would need knot-tying, since the closure
+-- | is not yet built — the self reference resolves to the code function's own
+-- | closure parameter (local 0), and is therefore excluded from the captures.
+liftLambda :: Maybe String -> Env -> String -> C.Expr -> Lower { codeName :: FuncName, captures :: Array Atom }
+liftLambda self env param body = do
+  let allFrees = freeVars [ param ] body
+  let
+    frees = case self of
+      Just name -> Array.filter (_ /= name) allFrees
+      Nothing -> allFrees
   captures <- traverse (resolveLocal env) frees
   n <- gets _.nextCode
   modify_ _ { nextCode = n + 1 }
   let codeName = funcName env.moduleName ("$code" <> show n)
-  -- The code function's locals: slot 0 = the closure, slot 1 = the argument;
-  -- captured frees are read positionally from the closure environment.
+  -- The code function's locals: slot 0 = the closure (also the recursive self
+  -- reference), slot 1 = the argument; captured frees are read positionally from
+  -- the closure environment.
   let
+    selfLocal = case self of
+      Just name -> [ Tuple name (AVar (Local (Slot 0))) ]
+      Nothing -> []
     codeLocals = Object.fromFoldable
-      ( Array.cons (Tuple param (AVar (Local (Slot 1))))
-          (Array.mapWithIndex (\i f -> Tuple f (AVar (EnvField i))) frees)
+      ( selfLocal
+          <> [ Tuple param (AVar (Local (Slot 1))) ]
+          <> Array.mapWithIndex (\i f -> Tuple f (AVar (EnvField i))) frees
       )
   let codeEnv = env { locals = codeLocals }
   saved <- gets _.slot
@@ -197,15 +248,24 @@ lowerTail env = case _ of
   C.Let _ binds body -> lowerCoreLet env binds body
   expr -> lowerArg env expr \atom -> pure (Return atom)
 
--- | A CoreFn `let` (non-recursive): bind each definition, extending the local
--- | environment, then lower the body. (purs hoists `case` scrutinees here.)
+-- | A CoreFn `let`: bind each group, extending the local environment, then
+-- | lower the body. `NonRec` groups bind directly. A single-binding `Rec` group
+-- | is self-recursion — lifted with the recursive name bound to the closure's
+-- | own parameter (see `liftLambda`). Mutually-recursive groups would need
+-- | allocate-then-patch knot-tying and are not yet supported.
 lowerCoreLet :: Env -> Array Bind -> C.Expr -> Lower AnfExpr
 lowerCoreLet env binds body = case Array.uncons binds of
   Nothing -> lowerTail env body
   Just { head: NonRec _ ident e, tail } ->
     lowerArg env e \atom ->
       lowerCoreLet (env { locals = Object.insert ident atom env.locals }) tail body
-  Just { head: Rec _ } -> throw (UnsupportedExpr "recursive let (deferred)")
+  Just { head: Rec recBinds, tail } -> case recBinds of
+    [ { ident, expr: C.Abs _ param recBody } ] -> do
+      { codeName, captures } <- liftLambda (Just ident) env param recBody
+      bindRhs (RMkClosure codeName captures) \fAtom ->
+        lowerCoreLet (env { locals = Object.insert ident fAtom env.locals }) tail body
+    [ _ ] -> throw (UnsupportedExpr "a recursive let binding must be a function")
+    _ -> throw (UnsupportedExpr "mutually-recursive let (knot-tying not yet supported)")
 
 -- | Compile a `case` into a `Switch` on the scrutinee's constructor tag.
 lowerCase :: Env -> Array C.Expr -> Array C.CaseAlternative -> Lower AnfExpr
@@ -287,21 +347,29 @@ collectCtors decls = (foldl step { counts: Object.empty, out: Object.empty } raw
       , out: Object.insert ctorName { tag, arity } out
       }
 
+-- | Flatten the top-level binding groups into `(ident, expr)` pairs. A `Rec`
+-- | group is mutual recursion between top-level functions; since each becomes a
+-- | module function called by name (`RCallKnown`), the recursion needs no
+-- | special handling beyond compiling every member.
+topLevelBindings :: Array Bind -> Array (Tuple String C.Expr)
+topLevelBindings = (_ >>= flatten)
+  where
+  flatten = case _ of
+    NonRec _ ident expr -> [ Tuple ident expr ]
+    Rec rs -> map (\r -> Tuple r.ident r.expr) rs
+
 -- | The non-constructor top-level functions, mapped to their arity.
 collectFuncs :: Array Bind -> Object Int
-collectFuncs decls = Object.fromFoldable (Array.mapMaybe go decls)
+collectFuncs decls = Object.fromFoldable (Array.mapMaybe keep (topLevelBindings decls))
   where
-  go = case _ of
-    NonRec _ ident expr
-      | not (isConstructor expr) -> Just (Tuple ident (Array.length (peelAbs expr).params))
-    _ -> Nothing
+  keep (Tuple ident expr)
+    | isConstructor expr = Nothing
+    | otherwise = Just (Tuple ident (Array.length (peelAbs expr).params))
 
--- | Top-level definitions that become wasm functions: non-recursive,
--- | non-constructor bindings.
+-- | Top-level definitions that become wasm functions: every binding (including
+-- | `Rec`-group members) that is not a constructor.
 functionDecls :: Array Bind -> Array (Tuple String C.Expr)
-functionDecls = Array.mapMaybe case _ of
-  NonRec _ ident expr | not (isConstructor expr) -> Just (Tuple ident expr)
-  _ -> Nothing
+functionDecls = Array.filter (\(Tuple _ expr) -> not (isConstructor expr)) <<< topLevelBindings
 
 isConstructor :: C.Expr -> Boolean
 isConstructor = case _ of

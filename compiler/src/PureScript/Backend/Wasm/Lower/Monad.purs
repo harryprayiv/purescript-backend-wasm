@@ -26,7 +26,6 @@ data LowerError
   | UnsupportedBinder String
   | UnknownVariable String
   | UnknownConstructor String
-  | NotSaturated String Int Int -- name, expected arity, actual args
   | GuardedCaseUnsupported
 
 derive instance eqLowerError :: Eq LowerError
