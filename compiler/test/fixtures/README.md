@@ -22,6 +22,13 @@ documentation/regeneration inputs, not compiled with the suite.
 | `Records.corefn.json` | `Records.purs.sample` | `Test.E2E.Records`            | general records: construction, access, update (`r { x = … }`), `{ x } ->` patterns |
 | `LinkA.corefn.json`   | `LinkA.purs.sample`   | `Test.E2E.Link`               | multi-module linking: `LinkA` imports `LinkB` (compiled together) |
 | `LinkB.corefn.json`   | `LinkB.purs.sample`   | `Test.E2E.Link`               | the imported module: a function + an ADT used across the boundary |
+| `Arith.corefn.json`   | `Arith.purs.sample`   | `Test.E2E.PreludeArith`       | real Prelude `+`/`*`/`-` on `Int` (Semiring/Ring dictionaries) |
+| `Data.Semiring.corefn.json` | (real Prelude) | `Test.E2E.PreludeArith`       | linked for `semiringInt` / `add` / `mul` / `intAdd` / `intMul` |
+| `Data.Ring.corefn.json`     | (real Prelude) | `Test.E2E.PreludeArith`       | linked for `ringInt` / `sub` / `intSub` |
+
+`Data.Semiring` / `Data.Ring` are **real `purs`-compiled Prelude output** (copied
+verbatim from a build's `output/<Module>/corefn.json`); regenerate them from the
+package set's `prelude` if it is bumped.
 
 ## Regenerating
 

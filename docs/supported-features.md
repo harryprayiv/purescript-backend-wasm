@@ -483,6 +483,37 @@ the dictionary and projection altogether — `add dict x y → intAdd x y` — i
 separate, further optimization of **ADR 0005** (dictionary elimination). Both are
 Proposed, not yet implemented.
 
+## Real `Prelude` arithmetic (`Semiring` / `Ring`)
+
+```purs
+import Prelude
+
+poly :: Int -> Int -> Int
+poly a b = a * a + b * b - a            -- real `+` / `*` / `-`, no foreign imports
+```
+
+`+` / `*` / `-` on `Int` go through the **real `Prelude`**, not hand-written
+intrinsics. purs desugars them to the `Semiring` / `Ring` method accessors applied
+to the `semiringInt` / `ringInt` instance dictionaries; those dictionaries (in
+`Data.Semiring` / `Data.Ring`) are records whose `add` / `mul` / `sub` fields are
+the `intAdd` / `intMul` / `intSub` **foreign** functions, which the intrinsics
+table maps to `i32.add` / `i32.mul` / `i32.sub`. So the existing dictionary support
+(above) plus those three intrinsics is all it takes — `poly` links the user module
+with `Data.Semiring` / `Data.Ring` into one wasm and runs.
+
+Two pieces of the build make this practical (ADR 0009):
+
+- **Multi-module linking** — the modules are linked into a single wasm, with
+  cross-module references resolved by qualified name.
+- **Function-level reachability** — only the functions actually reached from the
+  entry are lowered. A `Prelude` module like `Data.Semiring` defines many other
+  instances (`Semiring` for records, functions, `Proxy`, …, some using constructs
+  not yet supported); none are visited, because `poly` reaches only `semiringInt`,
+  the `add`/`mul` accessors, and the `intAdd`/`intMul` intrinsics.
+
+`Number` arithmetic, and the rest of the numeric hierarchy
+(`EuclideanRing` `/`, `DivisionRing`, …), are not wired up yet.
+
 ## Records
 
 ```purs

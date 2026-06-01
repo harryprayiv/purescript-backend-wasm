@@ -87,6 +87,9 @@ type Env =
 
 -- | The foreign-primitive table (ADR 0002's `ForeignProvider`, hard-coded): a
 -- | module-local foreign identifier → its machine op + arity.
+-- | The foreign-primitive table (ADR 0002's `ForeignProvider`, hard-coded). Keyed
+-- | by the foreign *identifier*: the test fixtures' own names (`addI`, …) and the
+-- | real `Prelude`'s (`intAdd`, …) sit side by side, both unique.
 foreignIntrinsic :: String -> Maybe (Tuple Intrinsic Int)
 foreignIntrinsic = case _ of
   "addI" -> Just (Tuple IntAdd 2)
@@ -100,6 +103,10 @@ foreignIntrinsic = case _ of
   "eqS" -> Just (Tuple StrEq 2)
   "lengthA" -> Just (Tuple ArrayLength 1)
   "indexA" -> Just (Tuple ArrayIndex 2)
+  -- real Prelude: `Data.Semiring` / `Data.Ring` integer arithmetic
+  "intAdd" -> Just (Tuple IntAdd 2)
+  "intMul" -> Just (Tuple IntMul 2)
+  "intSub" -> Just (Tuple IntSub 2)
   _ -> Nothing
 
 -- | The globally-unique key/name for a module-qualified top-level identifier:
@@ -713,10 +720,57 @@ collectLabels modules =
     C.NamedBinder _ _ b -> binderLabels b
     _ -> []
 
+-- | The module-qualified names of the top-level bindings an expression references
+-- | (`Qualified (Just module) ident` `Var`s), used for reachability.
+qualifiedRefs :: C.Expr -> Array String
+qualifiedRefs = go
+  where
+  go = case _ of
+    C.Var _ (Qualified (Just m) ident) -> [ qualifiedKey m ident ]
+    C.Var _ _ -> []
+    C.Literal _ (C.LitArray es) -> es >>= go
+    C.Literal _ (C.LitObject kvs) -> kvs >>= \(Tuple _ v) -> go v
+    C.Literal _ _ -> []
+    C.Constructor _ _ _ _ -> []
+    C.Accessor _ _ e -> go e
+    C.ObjectUpdate _ e _ kvs -> go e <> (kvs >>= \(Tuple _ v) -> go v)
+    C.Abs _ _ b -> go b
+    C.App _ f a -> go f <> go a
+    C.Case _ ss alts -> (ss >>= go) <> (alts >>= altRefs)
+    C.Let _ binds b -> (binds >>= bindRefs) <> go b
+  altRefs alt = case alt.result of
+    Right e -> go e
+    Left guards -> guards >>= \g -> go g.guard <> go g.expression
+  bindRefs = case _ of
+    NonRec _ _ e -> go e
+    Rec rs -> rs >>= \r -> go r.expr
+
+-- | The set of function keys reachable from `roots`, following references through
+-- | the `functions` table (a worklist closure). References to things outside the
+-- | table — foreign primitives, data/dictionary constructors — are not followed,
+-- | since those are not lowered as functions. This is the tree-shaking that lets a
+-- | few `Prelude` functions be lowered without dragging in (and failing on) the
+-- | rest of a module (ADR 0009).
+reachableFunctions :: Object C.Expr -> Array String -> Object Unit
+reachableFunctions functions roots = go (Object.fromFoldable (map (\k -> Tuple k unit) roots)) roots
+  where
+  go seen frontier = case Array.uncons frontier of
+    Nothing -> seen
+    Just { head: key, tail } -> case Object.lookup key functions of
+      Nothing -> go seen tail
+      Just expr ->
+        let
+          fresh = Array.filter (\k -> Object.member k functions && not (Object.member k seen))
+            (Array.nub (qualifiedRefs expr))
+        in
+          go (foldl (\s k -> Object.insert k unit s) seen fresh) (tail <> fresh)
+
 -- | Link and lower several decoded CoreFn modules into one backend IR `Program`
 -- | (one wasm; ADR 0009). Symbol tables are built across **all** modules and keyed
--- | by qualified name, so cross-module references resolve; only the `roots`
--- | modules' functions are exported (the rest are internal, hence DCE-eligible).
+-- | by qualified name, so cross-module references resolve. Only functions
+-- | **reachable** from the `roots` modules are lowered (so a `Prelude` module's
+-- | unused — and possibly unsupported — instances are never visited); the roots'
+-- | own functions are exported, the rest are internal.
 lowerModules :: Array (Array String) -> Array Module -> Either LowerError Program
 lowerModules roots modules = do
   let
@@ -727,10 +781,20 @@ lowerModules roots modules = do
       , dictCtors
       , labelIds: collectLabels modules
       }
-    lowerOneModule m =
-      traverse (lowerTopFunc info m.name (Array.elem m.name roots)) (functionDecls dictCtors m)
-  Tuple funcss st <- runStateT (traverse lowerOneModule modules) { slot: 0, lifted: [], nextCode: 0 }
-  pure { funcs: Array.concat funcss <> st.lifted }
+    entries = modules >>= \m ->
+      let
+        isRoot = Array.elem m.name roots
+      in
+        functionDecls dictCtors m <#> \(Tuple ident expr) ->
+          { key: qualifiedKey m.name ident, moduleName: m.name, ident, expr, isRoot }
+    functions = Object.fromFoldable (entries <#> \e -> Tuple e.key e.expr)
+    rootKeys = Array.mapMaybe (\e -> if e.isRoot then Just e.key else Nothing) entries
+    reachable = reachableFunctions functions rootKeys
+    toLower = Array.filter (\e -> Object.member e.key reachable) entries
+  Tuple funcs st <- runStateT
+    (traverse (\e -> lowerTopFunc info e.moduleName e.isRoot (Tuple e.ident e.expr)) toLower)
+    { slot: 0, lifted: [], nextCode: 0 }
+  pure { funcs: funcs <> st.lifted }
 
 -- | Lower a single decoded CoreFn module to a backend IR `Program`, exporting its
 -- | top-level functions (the single-module case of `lowerModules`).

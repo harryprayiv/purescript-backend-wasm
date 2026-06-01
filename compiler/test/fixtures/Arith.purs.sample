@@ -1,0 +1,13 @@
+module Arith where
+
+import Prelude
+
+-- real Prelude `+`, `*`, `-` on Int (via Semiring / Ring dictionaries)
+poly :: Int -> Int -> Int
+poly a b = a * a + b * b - a
+
+sumSquares :: Int -> Int -> Int
+sumSquares a b = a * a + b * b
+
+diff :: Int -> Int -> Int
+diff a b = a - b
