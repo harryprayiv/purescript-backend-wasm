@@ -37,6 +37,8 @@ documentation/regeneration inputs, not compiled with the suite.
 | `Data.EuclideanRing.corefn.json`   | (real Prelude) | `Test.E2E.PreludeNumber` | `euclideanRingNumber` / `div` / `numDiv` |
 | `Data.Int.corefn.json`             | (real Prelude) | `Test.E2E.PreludeNumber` | `toNumber` (Int → Number) |
 
+| `Guards.corefn.json`  | `Guards.purs.sample`  | `Test.E2E.PreludeGuards`      | **case guards**: multiple guards in one alternative + fallthrough to a later alternative; guarded constructor patterns (linked with `Data.Eq` / `Data.Ord` / `Data.Ordering` for `>`) |
+
 `Data.Semiring` / `Data.Ring` / `Data.Eq` / `Data.Ord` / `Data.Ordering` are
 **real `purs`-compiled Prelude output** (copied verbatim from a build's
 `output/<Module>/corefn.json`); regenerate them from the package set's `prelude`

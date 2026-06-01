@@ -286,5 +286,12 @@ erased onto the same occurrence). This unlocks:
   (`Sum`/`Product`/`Inl`/`Inr`/`Constructor`/`Argument`), which is exactly such a
   multi-scrutinee match over the rep.
 
-Case **guards** (`| cond`) are still rejected, and `Data.Int.round`/`floor`/`…` are
-not wired up.
+**Case guards** (`| cond`) are supported. A guarded alternative whose pattern
+matches may still fail when none of its guards hold, in which case matching falls
+through to the subsequent alternatives. In the decision tree the rows after a leaf
+are exactly those fallthrough candidates in priority order, so a guarded leaf
+lowers to a chain of boolean tests whose final `else` is the compiled remainder of
+the matrix (or a trap, when nothing remains — a partial match). Multiple guards in
+one alternative (`_ | a → … | b → …`) become successive tests in that chain.
+
+`Data.Int.round` / `floor` / `…` are not wired up.

@@ -10,8 +10,15 @@
 -- |
 -- | Scope: constructor patterns (newtype constructors are erased — they carry no
 -- | tag — so they are transparently unwrapped onto the same occurrence), scalar
--- | literal patterns, variables, wildcards, and as-patterns. Guards and record /
+-- | literal patterns, variables, wildcards, as-patterns, and guards. Record /
 -- | array *binders* are not handled here (the caller keeps its own paths / errors).
+-- |
+-- | Guards: a guarded alternative whose pattern matches may still fail (when none
+-- | of its guards hold), in which case matching falls through to the subsequent
+-- | alternatives. In the decision tree the rows after a leaf are exactly those
+-- | fallthrough candidates, in priority order, so a guarded leaf lowers to a chain
+-- | of boolean tests whose final `else` is the compiled remainder of the matrix
+-- | (or a trap, when nothing remains — a partial match).
 module PureScript.Backend.Wasm.Lower.Match
   ( MatchOps
   , compileMatch
@@ -28,7 +35,7 @@ import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import PureScript.Backend.Wasm.IR (AnfExpr(..), Atom(..), Branch(..), LitBranch(..), LitPat(..), Rep(..), Rhs(..), Slot, VarRef(..))
 import PureScript.Backend.Wasm.Lower.Monad (Lower, LowerError(..), fresh, throw)
-import PureScript.CoreFn (Qualified)
+import PureScript.CoreFn (Guard, Qualified)
 import PureScript.CoreFn as C
 
 -- | The lowering capabilities the decision-tree compiler needs, injected so this
@@ -36,16 +43,20 @@ import PureScript.CoreFn as C
 -- | threaded as pattern variables are bound.
 type MatchOps env =
   { lowerBody :: env -> C.Expr -> Lower AnfExpr
+  -- | Lower a (boolean) guard expression to an `Atom` and continue; the result is
+  -- | the conditional built around that atom. (Concretely the caller's `lowerArg`.)
+  , lowerCond :: env -> C.Expr -> (Atom -> Lower AnfExpr) -> Lower AnfExpr
   , bindLocal :: String -> Atom -> env -> env
   , lookupCtor :: Qualified String -> Lower { tag :: Int, arity :: Int }
   }
 
 -- | One clause row: the remaining column patterns, the variable bindings collected
--- | so far (from matched vars / as-patterns), and the body to run on success.
+-- | so far (from matched vars / as-patterns), and the result to run on success —
+-- | either an unguarded body (`Right`) or a list of guarded results (`Left`).
 type Clause =
   { pats :: Array C.Binder
   , binds :: Array (Tuple String Atom)
-  , body :: C.Expr
+  , result :: Either (Array Guard) C.Expr
   }
 
 -- | Compile `case occs… of alternatives…`, where `occs` are the already-lowered
@@ -55,34 +66,60 @@ compileMatch ops env occs alternatives = do
   rows <- traverse toRow alternatives
   compile ops env occs rows
   where
-  toRow alt = case alt.result of
-    Left _ -> throw GuardedCaseUnsupported
-    Right body -> pure { pats: map stripNewtype alt.binders, binds: [], body }
+  toRow alt = pure { pats: map stripNewtype alt.binders, binds: [], result: alt.result }
 
 compile :: forall env. MatchOps env -> env -> Array Atom -> Array Clause -> Lower AnfExpr
 compile ops env occs rows0 = case Array.head rows of
   Nothing -> throw (UnsupportedExpr "non-exhaustive pattern match")
   Just row1 -> case selectColumn row1.pats of
-    Nothing -> matchRow ops env occs row1
+    Nothing -> matchRow ops env occs row1 (Array.drop 1 rows)
     Just col -> case Array.index occs col of
       Nothing -> throw (UnsupportedExpr "pattern match: column out of range")
       Just occ ->
         if columnIsLiteral rows col then compileLit ops env occs rows col occ
         else compileCtor ops env occs rows col occ
   where
-  -- An all-irrefutable row (a catch-all) matches everything, so any rows after it
-  -- are unreachable and dropped.
-  rows = case Array.findIndex (Array.all (not <<< isRefutable) <<< _.pats) rows0 of
+  -- An *unguarded* all-irrefutable row matches everything unconditionally, so rows
+  -- after it are unreachable and dropped. A guarded one is not a catch-all (its
+  -- guards may all fail), so it never truncates the matrix.
+  rows = case Array.findIndex isCatchAll rows0 of
     Just i -> Array.take (i + 1) rows0
     Nothing -> rows0
+  isCatchAll r = isUnguarded r && Array.all (not <<< isRefutable) r.pats
 
 -- | Every column of the first row is irrefutable: bind the variables and run the
--- | body. (No `Let`s are needed — irrefutable binders name existing occurrences.)
-matchRow :: forall env. MatchOps env -> env -> Array Atom -> Clause -> Lower AnfExpr
-matchRow ops env occs row = do
+-- | result. (No `Let`s are needed — irrefutable binders name existing occurrences.)
+-- | `rest` is the matrix to fall through to if this row is guarded and its guards
+-- | all fail.
+matchRow :: forall env. MatchOps env -> env -> Array Atom -> Clause -> Array Clause -> Lower AnfExpr
+matchRow ops env occs row rest = do
   let env1 = foldl (\e (Tuple n a) -> ops.bindLocal n a e) env row.binds
   env2 <- bindCols ops env1 (Array.zip occs row.pats)
-  ops.lowerBody env2 row.body
+  case row.result of
+    Right body -> ops.lowerBody env2 body
+    Left guards -> do
+      -- the guards see the row's bindings (`env2`); the fallthrough re-matches the
+      -- remaining clauses against the original occurrences (`env`).
+      fallthrough <-
+        if Array.null rest then pure Nothing
+        else Just <$> compile ops env occs rest
+      chain <- guardChain ops env2 guards fallthrough
+      case chain of
+        Just e -> pure e
+        -- `Left` always carries at least one guard, so this is unreachable.
+        Nothing -> throw (UnsupportedExpr "guarded alternative with no guards")
+
+-- | Build a boolean-test chain `if g1 then e1 else if g2 … else <fallthrough>`.
+-- | With no fallthrough the final `else` is absent, so an all-guards-fail value
+-- | traps at runtime (a partial match), mirroring `Switch _ _ Nothing`.
+guardChain :: forall env. MatchOps env -> env -> Array Guard -> Maybe AnfExpr -> Lower (Maybe AnfExpr)
+guardChain ops env guards fallthrough = case Array.uncons guards of
+  Nothing -> pure fallthrough
+  Just { head: g, tail } -> map Just $
+    ops.lowerCond env g.guard \cond -> do
+      thenE <- ops.lowerBody env g.expression
+      elseE <- guardChain ops env tail fallthrough
+      pure (LitSwitch cond [ LitBranch (PBoolean true) thenE ] elseE)
 
 bindCols :: forall env. MatchOps env -> env -> Array (Tuple Atom C.Binder) -> Lower env
 bindCols ops env cols = case Array.uncons cols of
@@ -164,6 +201,11 @@ defaultRow occ col row = case Array.index row.pats col of
 -- | The leftmost refutable column of a row, or `Nothing` if all are irrefutable.
 selectColumn :: Array C.Binder -> Maybe Int
 selectColumn = Array.findIndex isRefutable
+
+isUnguarded :: Clause -> Boolean
+isUnguarded r = case r.result of
+  Right _ -> true
+  Left _ -> false
 
 isRefutable :: C.Binder -> Boolean
 isRefutable = case _ of

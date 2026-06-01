@@ -11,7 +11,7 @@ import Prelude
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
-import PureScript.Backend.Wasm.Lower (LowerError(..))
+import PureScript.Backend.Wasm.IR (LitPat(..))
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Unit.PureScript.Backend.Wasm.Lower.Common
@@ -28,6 +28,7 @@ import Test.Unit.PureScript.Backend.Wasm.Lower.Common
   , intLitBinder
   , lam
   , litInt
+  , litSwitchOf
   , lower
   , lv
   , newtypeBinder
@@ -132,8 +133,49 @@ spec = describe "PureScript.Backend.Wasm.Lower.Match (decision trees)" do
           Array.length (switchScrutinees fn.body) `shouldEqual` 2
           countLitSwitches fn.body `shouldEqual` 1
 
-  it "rejects a guarded alternative (guards are not yet compiled)" do
+  it "lowers a guarded alternative to a boolean test that falls through to the next" do
+    -- f x = case x of _ | <guard> -> 1 ; _ -> 2
+    -- The guarded row's pattern is irrefutable, so the whole match is a single
+    -- boolean test whose else-branch is the fallthrough (the `_ -> 2` body).
+    let
+      decls =
+        [ def "f"
+            ( lam "x"
+                ( caseOf (lv "x")
+                    [ guardedAlt nullBinder (litInt 1) (litInt 1)
+                    , binderAlt nullBinder (litInt 2)
+                    ]
+                )
+            )
+        ]
+    case lower decls of
+      Left err -> fail (show err)
+      Right prog ->
+        (litSwitchOf <<< _.body <$> exported "f" prog)
+          `shouldEqual` Just (Just { pats: [ PBoolean true ], hasDefault: true })
+
+  it "traps when a guarded alternative's guards fail and nothing follows" do
+    -- f x = case x of _ | <guard> -> 1   -- partial: no fallthrough
+    -- All-guards-fail must trap, so the boolean test carries no default.
+    let
+      decls =
+        [ def "f"
+            ( lam "x"
+                ( caseOf (lv "x")
+                    [ guardedAlt nullBinder (litInt 1) (litInt 1) ]
+                )
+            )
+        ]
+    case lower decls of
+      Left err -> fail (show err)
+      Right prog ->
+        (litSwitchOf <<< _.body <$> exported "f" prog)
+          `shouldEqual` Just (Just { pats: [ PBoolean true ], hasDefault: false })
+
+  it "tests the constructor before the guard for a guarded constructor pattern" do
     -- f x = case x of A | <guard> -> 1 ; _ -> 2
+    -- The refutable `A` is switched on first; the guard becomes a boolean test
+    -- nested inside that branch.
     let
       decls =
         [ ctor "Ty" "A" []
@@ -147,6 +189,11 @@ spec = describe "PureScript.Backend.Wasm.Lower.Match (decision trees)" do
             )
         ]
     case lower decls of
-      Left GuardedCaseUnsupported -> pure unit
-      Left err -> fail ("expected GuardedCaseUnsupported, got " <> show err)
-      Right _ -> fail "expected the guarded match to be rejected"
+      Left err -> fail (show err)
+      Right prog -> case exported "f" prog of
+        Nothing -> fail "expected an exported function f"
+        Just fn -> do
+          -- the top node is a constructor Switch on tag 0, with a fallthrough default
+          switchOf fn.body `shouldEqual` Just { tags: [ 0 ], hasDefault: true }
+          -- exactly one guard test, nested inside the constructor branch
+          countLitSwitches fn.body `shouldEqual` 1

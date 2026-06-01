@@ -26,7 +26,6 @@ data LowerError
   | UnsupportedBinder String
   | UnknownVariable String
   | UnknownConstructor String
-  | GuardedCaseUnsupported
 
 derive instance eqLowerError :: Eq LowerError
 derive instance genericLowerError :: Generic LowerError _

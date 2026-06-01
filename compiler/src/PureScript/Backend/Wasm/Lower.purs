@@ -50,7 +50,7 @@ import Data.Tuple (Tuple(..), fst)
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import PureScript.Backend.Wasm.Lower.FreeVars (freeVars)
-import PureScript.Backend.Wasm.Lower.Match (compileMatch)
+import PureScript.Backend.Wasm.Lower.Match (MatchOps, compileMatch)
 import PureScript.Backend.Wasm.Lower.Monad (Lower, LowerError(..), fresh, throw)
 import PureScript.Backend.Wasm.Lower.Monad (LowerError(..)) as ReExport
 import PureScript.Backend.Wasm.Intrinsics (foreignIntrinsic)
@@ -429,9 +429,10 @@ lowerCase env scrutinees alternatives = case scrutinees of
 
 -- | The `Lower`-specific operations the decision-tree compiler needs, so it can
 -- | stay an independent leaf module (see `Lower.Match`).
-matchOps :: Env -> { lowerBody :: Env -> C.Expr -> Lower AnfExpr, bindLocal :: String -> Atom -> Env -> Env, lookupCtor :: Qualified String -> Lower CtorInfo }
+matchOps :: Env -> MatchOps Env
 matchOps env =
   { lowerBody: lowerTail
+  , lowerCond: lowerArg
   , bindLocal: \name atom e -> e { locals = Object.insert name atom e.locals }
   , lookupCtor: \q -> requireCtor env (qualifiedKeyOf q)
   }
