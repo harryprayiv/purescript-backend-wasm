@@ -276,15 +276,23 @@ scrutinees with multiple constructor / literal / nested alternatives compiles to
 **decision tree** of `Switch` / `LitSwitch` nodes (`Lower.Match`, the classic
 column-wise algorithm: pick a column, switch on its constructors with the fields
 projected into each branch, recurse on the default matrix; newtype constructors are
-erased onto the same occurrence). This unlocks:
+erased onto the same occurrence). **Array-literal patterns** (`[]`, `[a, b]`) are
+handled too: the column switches on the array's *length* (`ArrayLength` →
+`LitSwitch`), and each branch projects the elements by index (`ArrayIndex`) into
+fresh occurrences with the sub-binders spliced in. This unlocks:
 
 - *Derived* `Eq` / `Ord` on **multi-constructor** types (`derive instance Eq Color`,
   `data Shape = Circle Int | Rect Int Int`) — the flat `case x, y of C1, C1 → …`
   purs generates.
-- **`Generic`-based deriving** — `derive instance Generic` + `genericEq` works:
-  `from` both values and compare their representations
-  (`Sum`/`Product`/`Inl`/`Inr`/`Constructor`/`Argument`), which is exactly such a
-  multi-scrutinee match over the rep.
+- **`Generic`-based deriving** — `derive instance Generic` then `genericEq`,
+  `genericCompare`, and `genericShow` all work: `from` the value(s) to the rep
+  (`Sum`/`Product`/`Inl`/`Inr`/`Constructor`/`Argument`/`NoArguments`) and fold over
+  it. `genericShow` needs no symbol-reflection machinery — `purs` lowers
+  `reflectSymbol` to a value-level string literal inside each synthesised `IsSymbol`
+  dictionary (`{ reflectSymbol: \_ → "B" }`); the only runtime addition is
+  `Data.Show.Generic`'s `intercalate` foreign (joining the shown arguments), now the
+  `$rt.intercalate` helper. The empty-array pattern in its `case … of [] → …`
+  motivated the array-pattern support above.
 
 **Case guards** (`| cond`) are supported. A guarded alternative whose pattern
 matches may still fail when none of its guards hold, in which case matching falls

@@ -10,8 +10,9 @@
 -- |
 -- | Scope: constructor patterns (newtype constructors are erased — they carry no
 -- | tag — so they are transparently unwrapped onto the same occurrence), scalar
--- | literal patterns, variables, wildcards, as-patterns, and guards. Record /
--- | array *binders* are not handled here (the caller keeps its own paths / errors).
+-- | literal patterns, array-literal patterns (switched on length, elements
+-- | projected by index), variables, wildcards, as-patterns, and guards. Record
+-- | *binders* are not handled here (the caller keeps its own record-pattern path).
 -- |
 -- | Guards: a guarded alternative whose pattern matches may still fail (when none
 -- | of its guards hold), in which case matching falls through to the subsequent
@@ -34,6 +35,7 @@ import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import PureScript.Backend.Wasm.IR (AnfExpr(..), Atom(..), Branch(..), LitBranch(..), LitPat(..), Rep(..), Rhs(..), Slot, VarRef(..))
+import PureScript.Backend.Wasm.Intrinsics (Intrinsic(ArrayIndex, ArrayLength))
 import PureScript.Backend.Wasm.Lower.Monad (Lower, LowerError(..), fresh, throw)
 import PureScript.CoreFn (Guard, Qualified)
 import PureScript.CoreFn as C
@@ -75,9 +77,10 @@ compile ops env occs rows0 = case Array.head rows of
     Nothing -> matchRow ops env occs row1 (Array.drop 1 rows)
     Just col -> case Array.index occs col of
       Nothing -> throw (UnsupportedExpr "pattern match: column out of range")
-      Just occ ->
-        if columnIsLiteral rows col then compileLit ops env occs rows col occ
-        else compileCtor ops env occs rows col occ
+      Just occ -> case columnKind rows col of
+        KArray -> compileArray ops env occs rows col occ
+        KScalar -> compileLit ops env occs rows col occ
+        KCtor -> compileCtor ops env occs rows col occ
   where
   -- An *unguarded* all-irrefutable row matches everything unconditionally, so rows
   -- after it are unreachable and dropped. A guarded one is not a catch-all (its
@@ -166,6 +169,29 @@ compileLit ops env occs rows col occ = do
     inner <- compile ops env (removeAt col occs) specialized
     pure (LitBranch pat inner)
 
+-- | Switch on the *length* of an array-literal column. A PureScript array pattern
+-- | `[p0 … pk]` matches arrays of exactly that length, binding each element. We
+-- | read the length (`ArrayLength`), `LitSwitch` on it, and inside each branch
+-- | project the elements (`ArrayIndex`) into fresh occurrences with the sub-binders
+-- | spliced in (analogous to `compileCtor`, but keyed on length rather than tag).
+compileArray :: forall env. MatchOps env -> env -> Array Atom -> Array Clause -> Int -> Atom -> Lower AnfExpr
+compileArray ops env occs rows col occ = do
+  let lengths = Array.nubEq (Array.mapMaybe (\r -> arrayLenOf =<< Array.index r.pats col) rows)
+  lenSlot <- fresh
+  branches <- traverse lenBranch lengths
+  dflt <- defaultMatrix ops env occs rows col occ
+  pure
+    ( Let lenSlot Boxed (RPrim ArrayLength [ occ ])
+        (LitSwitch (AVar (Local lenSlot)) branches dflt)
+    )
+  where
+  lenBranch len = do
+    elemSlots <- traverse (const fresh) (Array.replicate len unit)
+    let elemOccs = map (AVar <<< Local) elemSlots
+    let specialized = Array.mapMaybe (specializeArray occ col len) rows
+    inner <- compile ops env (spliceAt col elemOccs occs) specialized
+    pure (LitBranch (PInt len) (wrapElemLets occ elemSlots inner))
+
 -- | The default matrix: rows whose column `col` is a wildcard (a var binds the
 -- | whole occurrence), with that column removed. `Nothing` when empty (unreachable).
 defaultMatrix :: forall env. MatchOps env -> env -> Array Atom -> Array Clause -> Int -> Atom -> Lower (Maybe AnfExpr)
@@ -192,6 +218,19 @@ specializeLit col pat row = case Array.index row.pats col of
   Just (C.LiteralBinder _ lit) | litMatches pat lit -> Just (row { pats = removeAt col row.pats })
   _ -> Nothing
 
+-- specialize a row for an array-literal column of length `len` (splice the element
+-- sub-binders), or treat a var/wildcard as `len` wildcards, else drop the row.
+specializeArray :: Atom -> Int -> Int -> Clause -> Maybe Clause
+specializeArray occ col len row = case Array.index row.pats col of
+  Just (C.LiteralBinder _ (C.LitArray subs))
+    | Array.length subs == len -> Just (row { pats = spliceAt col (map stripNewtype subs) row.pats })
+    | otherwise -> Nothing
+  Just (C.VarBinder _ name) ->
+    Just (row { pats = spliceAt col (wildcards len) row.pats, binds = Array.snoc row.binds (Tuple name occ) })
+  Just (C.NullBinder _) ->
+    Just (row { pats = spliceAt col (wildcards len) row.pats })
+  _ -> Nothing
+
 defaultRow :: Atom -> Int -> Clause -> Maybe Clause
 defaultRow occ col row = case Array.index row.pats col of
   Just (C.VarBinder _ name) -> Just (row { pats = removeAt col row.pats, binds = Array.snoc row.binds (Tuple name occ) })
@@ -215,16 +254,35 @@ isRefutable = case _ of
   C.ConstructorBinder _ _ _ _ -> true
   C.LiteralBinder _ _ -> true
 
-columnIsLiteral :: Array Clause -> Int -> Boolean
-columnIsLiteral rows col = Array.any isLit rows
+-- | What a refutable column tests on, deciding which compiler handles it. A
+-- | well-typed column is homogeneous; the kind is read off its first refutable
+-- | binder (array literals are distinguished from scalar literals because they
+-- | switch on length + project elements rather than compare by value).
+data ColKind
+  = KCtor
+  | KScalar
+  | KArray
+
+columnKind :: Array Clause -> Int -> ColKind
+columnKind rows col = case Array.findMap rowKind rows of
+  Just k -> k
+  Nothing -> KCtor
   where
-  isLit r = case Array.index r.pats col of
-    Just (C.LiteralBinder _ _) -> true
-    _ -> false
+  rowKind r = binderKind =<< Array.index r.pats col
+  binderKind = case _ of
+    C.LiteralBinder _ (C.LitArray _) -> Just KArray
+    C.LiteralBinder _ _ -> Just KScalar
+    C.ConstructorBinder _ _ _ _ -> Just KCtor
+    _ -> Nothing
 
 ctorOf :: C.Binder -> Maybe (Qualified String)
 ctorOf = case _ of
   C.ConstructorBinder _ _ name _ -> Just name
+  _ -> Nothing
+
+arrayLenOf :: C.Binder -> Maybe Int
+arrayLenOf = case _ of
+  C.LiteralBinder _ (C.LitArray subs) -> Just (Array.length subs)
   _ -> Nothing
 
 litOf :: C.Binder -> Maybe (C.Literal C.Binder)
@@ -279,3 +337,10 @@ wrapFieldLets :: Atom -> Array Slot -> AnfExpr -> AnfExpr
 wrapFieldLets occ fieldSlots body =
   foldr (\(Tuple idx slot) acc -> Let slot Boxed (RProjField occ idx) acc) body
     (Array.mapWithIndex Tuple fieldSlots)
+
+-- wrap a branch body in the `Let`s that project a matched array pattern's elements
+-- (by index, via the `ArrayIndex` prim).
+wrapElemLets :: Atom -> Array Slot -> AnfExpr -> AnfExpr
+wrapElemLets occ elemSlots body =
+  foldr (\(Tuple idx slot) acc -> Let slot Boxed (RPrim ArrayIndex [ occ, ALitInt idx ]) acc) body
+    (Array.mapWithIndex Tuple elemSlots)

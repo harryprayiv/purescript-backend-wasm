@@ -108,6 +108,7 @@ importRuntime ctx = do
   imp showStringHelperName "showString" [ B.eqref ] B.eqref
   imp showArrayHelperName "showArray" [ B.eqref, B.eqref ] B.eqref
   imp showNumberHelperName "showNumber" [ B.f64 ] B.eqref
+  imp intercalateHelperName "intercalate" [ B.eqref, B.eqref ] B.eqref
   imp intModHelperName "intMod" [ B.i32, B.i32 ] B.i32
   imp intDivHelperName "intDiv" [ B.i32, B.i32 ] B.i32
   imp intDegreeHelperName "intDegree" [ B.i32 ] B.i32
@@ -165,6 +166,11 @@ showArrayHelperName = "$rt.showArray"
 
 showNumberHelperName :: String
 showNumberHelperName = "$rt.showNumber"
+
+-- | `Data.Show.Generic`'s `intercalate` foreign: join an `Array String` with a
+-- | `String` separator (defined in `runtime.wat`).
+intercalateHelperName :: String
+intercalateHelperName = "$rt.intercalate"
 
 -- | The shared Euclidean `Int` division/remainder/degree helpers (see
 -- | `addIntEuclidHelpers`).
@@ -630,6 +636,11 @@ genPrim ctx intr args = case intr, args of
   ShowNumber, [ a ] -> do
     ea <- genAtom ctx a >>= unboxNumExpr ctx
     B.call ctx.mod showNumberHelperName [ ea ] B.eqref
+  -- String -> Array String -> String: join the rendered strings with the separator
+  Intercalate, [ sep, xs ] -> do
+    esep <- genAtom ctx sep
+    exs <- genAtom ctx xs
+    B.call ctx.mod intercalateHelperName [ esep, exs ] B.eqref
   StrEq, [ a, b ] -> do
     ea <- genAtom ctx a
     eb <- genAtom ctx b

@@ -127,6 +127,10 @@ varBinder = CF.VarBinder ann
 intLitBinder :: Int -> CF.Binder
 intLitBinder n = CF.LiteralBinder ann (CF.LitInt n)
 
+-- | An array-literal binder `[ b… ]` (matches arrays of exactly that length).
+arrayBinder :: Array CF.Binder -> CF.Binder
+arrayBinder subs = CF.LiteralBinder ann (CF.LitArray subs)
+
 -- | `record.label`.
 accessor :: String -> CF.Expr -> CF.Expr
 accessor label record = CF.Accessor ann label record

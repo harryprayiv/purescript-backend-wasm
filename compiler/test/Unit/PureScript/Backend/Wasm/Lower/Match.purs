@@ -16,6 +16,7 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Unit.PureScript.Backend.Wasm.Lower.Common
   ( alt2
+  , arrayBinder
   , binderAlt
   , case2
   , caseOf
@@ -197,3 +198,47 @@ spec = describe "PureScript.Backend.Wasm.Lower.Match (decision trees)" do
           switchOf fn.body `shouldEqual` Just { tags: [ 0 ], hasDefault: true }
           -- exactly one guard test, nested inside the constructor branch
           countLitSwitches fn.body `shouldEqual` 1
+
+  it "switches an array-literal pattern on its length" do
+    -- f xs = case xs of [] -> 1 ; _ -> 2
+    let
+      decls =
+        [ def "f"
+            ( lam "xs"
+                ( caseOf (lv "xs")
+                    [ binderAlt (arrayBinder []) (litInt 1)
+                    , binderAlt nullBinder (litInt 2)
+                    ]
+                )
+            )
+        ]
+    case lower decls of
+      Left err -> fail (show err)
+      Right prog ->
+        -- the `ArrayLength` is bound by a `Let`; `litSwitchOf` looks past it to the
+        -- length `LitSwitch`, which tests for length 0 with a catch-all default.
+        (litSwitchOf <<< _.body <$> exported "f" prog)
+          `shouldEqual` Just (Just { pats: [ PInt 0 ], hasDefault: true })
+
+  it "binds array elements by index for a fixed-length pattern" do
+    -- f xs = case xs of [] -> 0 ; [a, b] -> a ; _ -> 9
+    -- Referencing `a` in the body only resolves if the element sub-binders are
+    -- projected and bound, so a successful lowering is itself the assertion.
+    let
+      decls =
+        [ def "f"
+            ( lam "xs"
+                ( caseOf (lv "xs")
+                    [ binderAlt (arrayBinder []) (litInt 0)
+                    , binderAlt (arrayBinder [ varBinder "a", varBinder "b" ]) (lv "a")
+                    , binderAlt nullBinder (litInt 9)
+                    ]
+                )
+            )
+        ]
+    case lower decls of
+      Left err -> fail (show err)
+      Right prog ->
+        -- one length switch with branches for lengths 0 and 2, plus a catch-all
+        (litSwitchOf <<< _.body <$> exported "f" prog)
+          `shouldEqual` Just (Just { pats: [ PInt 0, PInt 2 ], hasDefault: true })
