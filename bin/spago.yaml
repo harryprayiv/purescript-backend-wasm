@@ -1,0 +1,11 @@
+package:
+  name: bin
+  dependencies:
+    - argparse-basic
+    - compiler
+    - console
+    - effect
+    - fmt
+    - node-path
+    - node-process
+    - prelude
