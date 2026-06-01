@@ -540,9 +540,14 @@ are the `boolConj` / `boolDisj` / `boolNot` foreigns — `i32.and` / `i32.or` /
 `i32.eqz` on the unboxed `i31` Boolean bits. (`&&` and `||` are the strict Prelude
 operators, so both operands are evaluated — no short-circuiting.)
 
-`Number` arithmetic, the `Boolean`/aggregate `Eq`/`Ord` instances, `Show`, and the
-rest of the numeric hierarchy (`EuclideanRing` `/`, `DivisionRing`, …), are not
-wired up yet.
+**`Number` arithmetic** likewise: `+` / `*` / `-` (`semiringNumber` / `ringNumber`)
+and `/` (`euclideanRingNumber`) map to the `numAdd` / `numMul` / `numSub` / `numDiv`
+foreigns — `f64.add` / `sub` / `mul` / `div` on the unboxed `$Num`. `==` on `Number`
+is `eqNumberImpl` (`f64.eq`), and `Data.Int.toNumber` is `f64.convert_i32_s`.
+
+`Show`, the `Boolean`/aggregate `Eq`/`Ord` instances, `Int` `/` (Euclidean
+`div`/`mod`), `Data.Int.round`/`floor`/`…`, and `Number`'s `Ord`, are not wired up
+yet.
 
 ## Records
 

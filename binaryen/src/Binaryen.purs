@@ -43,6 +43,10 @@ module Binaryen
   , i32TruncF64S
   , f64Const
   , f64Eq
+  , f64Add
+  , f64Sub
+  , f64Mul
+  , f64Div
   , f64ConvertI32S
   , if_
   , unreachable
@@ -288,6 +292,24 @@ foreign import f64EqImpl :: Module -> Expression -> Expression -> Effect Express
 -- | `f64.eq`: 1 if the operands are equal, 0 otherwise.
 f64Eq :: Module -> Expression -> Expression -> Effect Expression
 f64Eq = f64EqImpl
+
+foreign import f64AddImpl :: Module -> Expression -> Expression -> Effect Expression
+foreign import f64SubImpl :: Module -> Expression -> Expression -> Effect Expression
+foreign import f64MulImpl :: Module -> Expression -> Expression -> Effect Expression
+foreign import f64DivImpl :: Module -> Expression -> Expression -> Effect Expression
+
+f64Add :: Module -> Expression -> Expression -> Effect Expression
+f64Add = f64AddImpl
+
+f64Sub :: Module -> Expression -> Expression -> Effect Expression
+f64Sub = f64SubImpl
+
+f64Mul :: Module -> Expression -> Expression -> Effect Expression
+f64Mul = f64MulImpl
+
+-- | `f64.div`: floating-point division.
+f64Div :: Module -> Expression -> Expression -> Effect Expression
+f64Div = f64DivImpl
 
 foreign import f64ConvertI32SImpl :: Module -> Expression -> Effect Expression
 

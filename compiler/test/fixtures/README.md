@@ -32,6 +32,10 @@ documentation/regeneration inputs, not compiled with the suite.
 | `Data.Ordering.corefn.json` | (real Prelude) | `Test.E2E.PreludeCompare`     | the `Ordering` ADT (`LT`/`EQ`/`GT`) |
 | `Bool.corefn.json`    | `Bool.purs.sample`    | `Test.E2E.PreludeBool`        | real Prelude `&&` / `\|\|` / `not` (HeytingAlgebra) |
 | `Data.HeytingAlgebra.corefn.json` | (real Prelude) | `Test.E2E.PreludeBool`   | linked for `heytingAlgebraBoolean` / `conj` / `disj` / `not` / `boolConj` … |
+| `Num.corefn.json`     | `Num.purs.sample`     | `Test.E2E.PreludeNumber`      | real Prelude `Number` `+`/`*`/`-`/`/` + `Int.toNumber` |
+| `Data.CommutativeRing.corefn.json` | (real Prelude) | `Test.E2E.PreludeNumber` | `EuclideanRing`'s superclass (for `numDiv`) |
+| `Data.EuclideanRing.corefn.json`   | (real Prelude) | `Test.E2E.PreludeNumber` | `euclideanRingNumber` / `div` / `numDiv` |
+| `Data.Int.corefn.json`             | (real Prelude) | `Test.E2E.PreludeNumber` | `toNumber` (Int → Number) |
 
 `Data.Semiring` / `Data.Ring` / `Data.Eq` / `Data.Ord` / `Data.Ordering` are
 **real `purs`-compiled Prelude output** (copied verbatim from a build's

@@ -84,6 +84,11 @@ data Intrinsic
   | OrdInt
   | IntToNum -- Int -> Number (`f64.convert_i32_s`)
   | NumToInt -- Number -> Int (`i32.trunc_f64_s`)
+  | NumAdd -- Number -> Number -> Number (`f64.add`)
+  | NumSub -- Number -> Number -> Number (`f64.sub`)
+  | NumMul -- Number -> Number -> Number (`f64.mul`)
+  | NumDiv -- Number -> Number -> Number (`f64.div`)
+  | NumEq -- Number -> Number -> Boolean (`f64.eq`, result boxed as an `i31` Boolean)
   | BoolAnd -- Boolean -> Boolean -> Boolean (`i32.and` on the i31 bits)
   | BoolOr -- Boolean -> Boolean -> Boolean (`i32.or`)
   | BoolNot -- Boolean -> Boolean (`i32.eqz`)

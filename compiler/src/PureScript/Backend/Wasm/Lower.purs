@@ -116,6 +116,13 @@ foreignIntrinsic = case _ of
   "boolConj" -> Just (Tuple BoolAnd 2)
   "boolDisj" -> Just (Tuple BoolOr 2)
   "boolNot" -> Just (Tuple BoolNot 1)
+  -- real Prelude: `Number` arithmetic + `Int`/`Number` conversion
+  "numAdd" -> Just (Tuple NumAdd 2)
+  "numMul" -> Just (Tuple NumMul 2)
+  "numSub" -> Just (Tuple NumSub 2)
+  "numDiv" -> Just (Tuple NumDiv 2)
+  "eqNumberImpl" -> Just (Tuple NumEq 2)
+  "toNumber" -> Just (Tuple IntToNum 1)
   _ -> Nothing
 
 -- | The globally-unique key/name for a module-qualified top-level identifier:

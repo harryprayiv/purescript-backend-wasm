@@ -101,6 +101,11 @@ export const f64ConstImpl = (mod) => (value) => () =>
 export const f64EqImpl = (mod) => (left) => (right) => () =>
   mod.f64.eq(left, right);
 
+export const f64AddImpl = (mod) => (left) => (right) => () => mod.f64.add(left, right);
+export const f64SubImpl = (mod) => (left) => (right) => () => mod.f64.sub(left, right);
+export const f64MulImpl = (mod) => (left) => (right) => () => mod.f64.mul(left, right);
+export const f64DivImpl = (mod) => (left) => (right) => () => mod.f64.div(left, right);
+
 export const f64ConvertI32SImpl = (mod) => (value) => () =>
   mod.f64.convert_s.i32(value);
 

@@ -594,6 +594,16 @@ genPrim ctx intr args = case intr, args of
   BoolNot, [ a ] -> do
     ea <- genAtom ctx a >>= unboxBoolExpr ctx
     B.i32Eqz ctx.mod ea >>= B.i31New ctx.mod
+  -- Number (f64) arithmetic: unbox the $Num operands, apply, re-box
+  NumAdd, [ a, b ] -> numBinop B.f64Add a b
+  NumSub, [ a, b ] -> numBinop B.f64Sub a b
+  NumMul, [ a, b ] -> numBinop B.f64Mul a b
+  NumDiv, [ a, b ] -> numBinop B.f64Div a b
+  -- Number -> Number -> Boolean
+  NumEq, [ a, b ] -> do
+    ea <- genAtom ctx a >>= unboxNumExpr ctx
+    eb <- genAtom ctx b >>= unboxNumExpr ctx
+    B.f64Eq ctx.mod ea eb >>= B.i31New ctx.mod
   -- String -> Int: the UTF-8 byte length
   StrLen, [ a ] -> do
     bytes <- strBytes ctx a
@@ -626,6 +636,10 @@ genPrim ctx intr args = case intr, args of
     ea <- genAtom ctx a >>= unboxBoolExpr ctx
     eb <- genAtom ctx b >>= unboxBoolExpr ctx
     op ctx.mod ea eb >>= B.i31New ctx.mod
+  numBinop op a b = do
+    ea <- genAtom ctx a >>= unboxNumExpr ctx
+    eb <- genAtom ctx b >>= unboxNumExpr ctx
+    op ctx.mod ea eb >>= boxNum ctx
 
 unboxIntAtom :: Ctx -> Atom -> Effect B.Expression
 unboxIntAtom ctx atom = genAtom ctx atom >>= unboxIntExpr ctx
