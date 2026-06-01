@@ -213,6 +213,9 @@ export const structGet = (mod) => (index) => (ref) => (ty) => (signed) => () =>
 export const arrayNew = (mod) => (ht) => (size) => (init) => () =>
   binaryen._BinaryenArrayNew(mod.ptr, ht, size, init);
 
+export const refNull = (mod) => (ht) => () =>
+  binaryen._BinaryenRefNull(mod.ptr, ht);
+
 export const arrayNewFixed = (mod) => (ht) => (values) => () => {
   const ptr = mallocI32(values);
   const expr = binaryen._BinaryenArrayNewFixed(mod.ptr, ht, ptr, values.length);

@@ -23,6 +23,7 @@ import Test.E2E.PreludeNumber as PreludeNumber
 import Test.E2E.PreludeEuclid as PreludeEuclid
 import Test.E2E.PreludeField as PreludeField
 import Test.E2E.PreludeBounded as PreludeBounded
+import Test.E2E.PreludeSemigroup as PreludeSemigroup
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
@@ -45,3 +46,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   PreludeEuclid.spec
   PreludeField.spec
   PreludeBounded.spec
+  PreludeSemigroup.spec

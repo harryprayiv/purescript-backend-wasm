@@ -6,6 +6,7 @@ import ArgParse.Basic (ArgParser)
 import ArgParse.Basic as ArgParser
 import Data.Array as Array
 import Data.Either (Either(..))
+import Data.Maybe (isNothing)
 import Data.List.NonEmpty as NEL
 import Data.String (Pattern(..))
 import Data.String as Str
@@ -107,7 +108,11 @@ buildCmd args = do
   -- Each subdirectory of `input` is named by its dotted module name; sort for a
   -- deterministic build (ADR 0009).
   entries <- FS.readdir args.input
-  let mods = Array.sort (Array.mapMaybe toModuleName entries)
+  let named = Array.sort (Array.mapMaybe toModuleName entries)
+  -- `Prim` and the other built-in pseudo-modules have an output directory but no
+  -- `corefn.json` (they are compiler intrinsics with no CoreFn); skip any module
+  -- whose CoreFn artifact is absent rather than failing the whole build.
+  mods <- Array.filterA (\mod -> isNothing <$> FS.access (Path.concat [ args.input, printModname mod, "corefn.json" ])) named
   Console.log (Fmt.fmt @"Linking {count} module(s) from {dir}" { count: Array.length mods, dir: args.input })
   modules <- for mods \mod -> do
     source <- FS.readTextFile UTF8 (Path.concat [ args.input, printModname mod, "corefn.json" ])

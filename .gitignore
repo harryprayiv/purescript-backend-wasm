@@ -1,6 +1,7 @@
 /.spago
 /output
 /output-es
+/output-wasm
 /dist
 **/node_modules
 **/.DS_Store

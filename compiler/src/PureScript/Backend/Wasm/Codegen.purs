@@ -78,6 +78,7 @@ buildModule prog = do
   addProjHelper ctx
   addStrEqHelper ctx
   addStrConcatHelper ctx
+  addArrayConcatHelper ctx
   addIntEuclidHelpers ctx
   traverse_ (addFunc ctx) prog.funcs
   traverse_ (addExportWrapper ctx) prog.funcs
@@ -95,6 +96,10 @@ strEqHelperName = "$rt.strEq"
 -- | The shared string concatenation helper (see `addStrConcatHelper`).
 strConcatHelperName :: String
 strConcatHelperName = "$rt.strConcat"
+
+-- | The shared array concatenation helper (see `addArrayConcatHelper`).
+arrayConcatHelperName :: String
+arrayConcatHelperName = "$rt.arrayConcat"
 
 -- | The shared Euclidean `Int` division/remainder/degree helpers (see
 -- | `addIntEuclidHelpers`).
@@ -324,6 +329,45 @@ addStrConcatHelper ctx = do
   result <- B.localGet mod 5 rt.refBytes >>= \d -> B.structNew mod rt.strHt [ d ]
   body <- B.block mod [ setA, setB, setLenA, setDest, copyA, copyB, result ] B.eqref
   _ <- B.addFunction mod strConcatHelperName (B.createType [ B.eqref, B.eqref ]) B.eqref [ rt.refBytes, rt.refBytes, B.i32, rt.refBytes ] body
+  pure unit
+
+-- | Add the shared array concatenation helper
+-- | `$rt.arrayConcat(a : eqref, b : eqref) -> eqref` (`Data.Semigroup`'s `<>` on
+-- | `Array`): allocate a `$Vals = (array (mut eqref))` of the combined length and
+-- | `array.copy` both halves in. Mirrors `addStrConcatHelper`, but the elements
+-- | are `eqref` (so the new array is built with `array.new_default`, every slot a
+-- | null that the copies overwrite) and `$Vals` is itself the value — no wrapping
+-- | struct. Locals: 2/3 the source arrays, 4 the length of `a`, 5 the destination.
+addArrayConcatHelper :: Ctx -> Effect Unit
+addArrayConcatHelper ctx = do
+  let mod = ctx.mod
+  let rt = ctx.rt
+  let valsOf p = B.localGet mod p B.eqref >>= \e -> B.refCast mod e rt.refVals
+  setA <- valsOf 0 >>= B.localSet mod 2
+  setB <- valsOf 1 >>= B.localSet mod 3
+  setLenA <- (B.localGet mod 2 rt.refVals >>= B.arrayLen mod) >>= B.localSet mod 4
+  lenB <- B.localGet mod 3 rt.refVals >>= B.arrayLen mod
+  total <- B.localGet mod 4 B.i32 >>= \la -> B.i32Add mod la lenB
+  -- init with a null `eqref`; every slot is overwritten by the copies below.
+  nullInit <- B.refNull mod B.eqref
+  setDest <- B.arrayNew mod rt.valsHt total nullInit >>= B.localSet mod 5
+  d0 <- B.i32Const mod 0
+  s0 <- B.i32Const mod 0
+  copyA <- do
+    dest <- B.localGet mod 5 rt.refVals
+    src <- B.localGet mod 2 rt.refVals
+    len <- B.localGet mod 4 B.i32
+    B.arrayCopy mod dest d0 src s0 len
+  copyB <- do
+    dest <- B.localGet mod 5 rt.refVals
+    destIdx <- B.localGet mod 4 B.i32
+    src <- B.localGet mod 3 rt.refVals
+    srcIdx <- B.i32Const mod 0
+    len <- B.localGet mod 3 rt.refVals >>= B.arrayLen mod
+    B.arrayCopy mod dest destIdx src srcIdx len
+  result <- B.localGet mod 5 rt.refVals
+  body <- B.block mod [ setA, setB, setLenA, setDest, copyA, copyB, result ] B.eqref
+  _ <- B.addFunction mod arrayConcatHelperName (B.createType [ B.eqref, B.eqref ]) B.eqref [ rt.refVals, rt.refVals, B.i32, rt.refVals ] body
   pure unit
 
 -- | The Euclidean `Int` division family (`Data.EuclideanRing`'s `Int` instance),
@@ -698,6 +742,10 @@ genPrim ctx intr args = case intr, args of
     ea <- genAtom ctx a
     eb <- genAtom ctx b
     B.call ctx.mod strConcatHelperName [ ea, eb ] B.eqref
+  ArrayConcat, [ a, b ] -> do
+    ea <- genAtom ctx a
+    eb <- genAtom ctx b
+    B.call ctx.mod arrayConcatHelperName [ ea, eb ] B.eqref
   StrEq, [ a, b ] -> do
     ea <- genAtom ctx a
     eb <- genAtom ctx b

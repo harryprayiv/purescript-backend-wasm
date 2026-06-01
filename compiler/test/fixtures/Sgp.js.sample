@@ -1,0 +1,2 @@
+export const lengthA = (xs) => xs.length;
+export const indexA = (xs) => (i) => xs[i];

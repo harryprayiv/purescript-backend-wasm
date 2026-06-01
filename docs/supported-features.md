@@ -580,6 +580,14 @@ binding (constructor / function / instance dictionary) therefore now **shadows**
 intrinsic table, and `foreignIntrinsic` is consulted only as a fallback (real
 foreigns have no declaration body, so they are never shadowed).
 
+**`Data.Semigroup`** (`<>` / `append`) for `String` and `Array`. `String` `<>`
+(`concatString`) reuses the existing `$rt.strConcat` runtime helper. `Array` `<>`
+(`concatArray`) uses a new `$rt.arrayConcat`: allocate a `$Vals` of the combined
+length (`array.new` with a `ref.null eqref` initializer) and `array.copy` both
+halves in — the array *is* the value, so there is no wrapping struct. (The other
+`Semigroup` instances — records, functions, `Unit`, the `Monoid` newtypes — are not
+exercised yet.)
+
 `Show`, the `Boolean`/aggregate `Eq`/`Ord` instances, `Data.Int.round`/`floor`/`…`,
 and `Number`'s `Ord`, are not wired up yet.
 

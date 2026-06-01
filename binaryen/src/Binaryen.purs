@@ -78,6 +78,7 @@ module Binaryen
   , structNew
   , structGet
   , arrayNew
+  , refNull
   , arrayNewFixed
   , arrayGet
   , arraySet
@@ -417,6 +418,10 @@ foreign import structGet :: Module -> Int -> Expression -> Type -> Boolean -> Ef
 -- | `array.new`: allocate an array of the heap type with `size` elements, each
 -- | initialised to `init`.
 foreign import arrayNew :: Module -> HeapType -> Expression -> Expression -> Effect Expression
+
+-- | `ref.null`: a null reference of the given (nullable) reference type. Useful
+-- | as the initializer of a reference array whose slots are later overwritten.
+foreign import refNull :: Module -> Type -> Effect Expression
 
 -- | `array.new_fixed`: allocate an array of the heap type from the given
 -- | elements.

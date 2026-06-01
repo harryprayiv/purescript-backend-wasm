@@ -47,6 +47,7 @@ data Intrinsic
   | StrEq -- String -> String -> Boolean (length then byte-by-byte compare)
   | ArrayLength -- Array a -> Int (`array.len`)
   | ArrayIndex -- Array a -> Int -> a (`array.get`; the element is already an `eqref`)
+  | ArrayConcat -- Array a -> Array a -> Array a (`Data.Semigroup` `<>`: allocate + copy both)
   -- | `Data.Bounded`'s `top` / `bottom` for `Int` / `Char` / `Number`: nullary
   -- | constant values (the foreign is a bare value, not a function — arity 0).
   | TopInt -- maxBound Int (`i32.const 2147483647`)
@@ -98,6 +99,9 @@ foreignIntrinsic = case _ of
   "boolDisj" -> Just (Tuple BoolOr 2)
   "boolNot" -> Just (Tuple BoolNot 1)
   -- `Number` arithmetic + `Int` → `Number` conversion
+  -- `Data.Semigroup` `<>`: string concat reuses the string runtime helper
+  "concatString" -> Just (Tuple StrConcat 2)
+  "concatArray" -> Just (Tuple ArrayConcat 2)
   "numAdd" -> Just (Tuple NumAdd 2)
   "numMul" -> Just (Tuple NumMul 2)
   "numSub" -> Just (Tuple NumSub 2)

@@ -2,3 +2,4 @@ packages:
   - "./binaryen/**"
   - "./compiler/**"
   - "./bin/**"
+  - "./example/**"
