@@ -1,6 +1,6 @@
 # 0009. Build and linking model: multi-module input, single-wasm output
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-06-01
 
 ## Context
@@ -32,7 +32,7 @@ Meanwhile the performance lever — type-class **dictionary elimination** (ADR 0
 along with DCE and inlining — is whole-program in nature (instances are imported
 from other modules) and is easiest within a single module.
 
-## Decision (proposed)
+## Decision
 
 **Multi-module input, single-wasm output.** The compiler reads the compiled
 `output/<Module>/corefn.json` of every module reachable from the entry/exports,

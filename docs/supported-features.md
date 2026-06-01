@@ -14,7 +14,7 @@ not a design decision.
 - [Function application, partial and over](#function-application-partial-and-over)
 - [Recursive Let-bindings](#recursive-let-bindings)
 - [Typeclasses (Not optimized!)](#typeclass-dictionaries-not-optimized)
-- [Real Prelude operations (Semiring/Ring, Eq/Ord, HeytingAlgebra)](#real-prelude-operations-semiringring-eqord-heytingalgebra)
+- [`Prelude` support](#prelude-support)
 - [Records](#records)
 - [Host Interface](#host-interface)
 

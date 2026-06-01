@@ -1,6 +1,6 @@
 # 0008. Constructing recursive type-class dictionary groups
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-06-01
 
 ## Context
@@ -51,7 +51,7 @@ but `monadEffect`'s own fields are all superclass thunks, so it builds without
 calling back — the recursion stops. The cycle lives entirely in deferred thunks
 and does **not** constrain construction order.
 
-## Decision (proposed)
+## Decision
 
 1. **Honor the CoreFn superclass thunks.** Compile a superclass field as the
    closure CoreFn gives (`\_ -> siblingDict`), not as an eager reference.
