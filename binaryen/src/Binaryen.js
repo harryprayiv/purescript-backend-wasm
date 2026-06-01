@@ -77,6 +77,18 @@ export const unreachableImpl = (mod) => () => mod.unreachable();
 export const i32ConstImpl = (mod) => (value) => () =>
   mod.i32.const(value);
 
+export const i32TruncF64SImpl = (mod) => (value) => () =>
+  mod.i32.trunc_s.f64(value);
+
+export const f64ConstImpl = (mod) => (value) => () =>
+  mod.f64.const(value);
+
+export const f64EqImpl = (mod) => (left) => (right) => () =>
+  mod.f64.eq(left, right);
+
+export const f64ConvertI32SImpl = (mod) => (value) => () =>
+  mod.f64.convert_s.i32(value);
+
 // --- Wasm GC (raw emscripten C API) -----------------------------------------
 // Binaryen.js 123 ships no high-level GC builders, so we call the raw C API and
 // marshal arrays through the emscripten heap ourselves. Expression/Type/HeapType
@@ -86,6 +98,12 @@ export const i32ConstImpl = (mod) => (value) => () =>
 export const eqref = binaryen.eqref;
 
 export const funcref = binaryen.funcref;
+
+export const i31ref = binaryen.i31ref;
+
+export const i31NewImpl = (mod) => (value) => () => mod.ref.i31(value);
+
+export const i31GetSImpl = (mod) => (value) => () => mod.i31.get_s(value);
 
 export const setFeaturesGC = (mod) => () => {
   mod.setFeatures(binaryen.Features.GC | binaryen.Features.ReferenceTypes);
