@@ -35,6 +35,10 @@ module Binaryen
   , i32Eq
   , i32LtU
   , i32Const
+  , i32TruncF64S
+  , f64Const
+  , f64Eq
+  , f64ConvertI32S
   , if_
   , unreachable
   , addFunction
@@ -48,6 +52,9 @@ module Binaryen
   , TypeBuilder
   , eqref
   , funcref
+  , i31ref
+  , i31New
+  , i31GetS
   , setFeaturesGC
   , typeBuilderCreate
   , typeBuilderSetStructType
@@ -228,6 +235,29 @@ foreign import i32ConstImpl :: Module -> Int -> Effect Expression
 i32Const :: Module -> Int -> Effect Expression
 i32Const = i32ConstImpl
 
+foreign import i32TruncF64SImpl :: Module -> Expression -> Effect Expression
+
+-- | `i32.trunc_f64_s`: truncate an `f64` toward zero to a signed `i32`.
+i32TruncF64S :: Module -> Expression -> Effect Expression
+i32TruncF64S = i32TruncF64SImpl
+
+foreign import f64ConstImpl :: Module -> Number -> Effect Expression
+
+f64Const :: Module -> Number -> Effect Expression
+f64Const = f64ConstImpl
+
+foreign import f64EqImpl :: Module -> Expression -> Expression -> Effect Expression
+
+-- | `f64.eq`: 1 if the operands are equal, 0 otherwise.
+f64Eq :: Module -> Expression -> Expression -> Effect Expression
+f64Eq = f64EqImpl
+
+foreign import f64ConvertI32SImpl :: Module -> Expression -> Effect Expression
+
+-- | `f64.convert_i32_s`: widen a signed `i32` to `f64`.
+f64ConvertI32S :: Module -> Expression -> Effect Expression
+f64ConvertI32S = f64ConvertI32SImpl
+
 -- --- Wasm GC ----------------------------------------------------------------
 -- Binaryen.js 123 exposes no high-level GC API, so these wrap the raw
 -- emscripten C API (see Binaryen.js for the heap marshalling). Heap types are
@@ -250,6 +280,22 @@ foreign import eqref :: Type
 -- | the call site, which keeps the closure struct type out of the function
 -- | type's recursion group (so the code function's own type matches).
 foreign import funcref :: Type
+
+-- | The `i31ref` value type (a 31-bit integer packed into a reference, no
+-- | allocation). The backend's `Boolean`/`Unit` representation (ADR 0001).
+foreign import i31ref :: Type
+
+foreign import i31NewImpl :: Module -> Expression -> Effect Expression
+
+-- | `ref.i31`: pack an `i32` (low 31 bits) into an `i31ref`.
+i31New :: Module -> Expression -> Effect Expression
+i31New = i31NewImpl
+
+foreign import i31GetSImpl :: Module -> Expression -> Effect Expression
+
+-- | `i31.get_s`: read the (sign-extended) `i32` out of an `i31ref`.
+i31GetS :: Module -> Expression -> Effect Expression
+i31GetS = i31GetSImpl
 
 -- | Enable the GC and reference-types features. Required before validating or
 -- | emitting a module that uses any construct below.
