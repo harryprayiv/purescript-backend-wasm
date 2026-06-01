@@ -71,11 +71,14 @@ the existing lowering, which is unchanged.
   dictionary/closure overhead) become expressible.
 - Slice 3 (records + type-class dictionaries) is the natural trigger. To keep
   correctness first, Slice 3 can run dictionaries *at runtime* (dictionaries as
-  records, methods as projections, recursive value groups topologically sorted)
-  with **no** optimization IR; the high-level IR and dictionary elimination come
-  afterwards, on top of a working baseline.
-- Adds a compilation stage and an IR to maintain; justified only by the
-  optimization payoff, not by module size.
+  records, methods as projections, recursive value groups ordered for
+  construction — see ADR 0008 for the precise story, since such groups can be
+  genuinely cyclic and "topologically sorted" is a simplification) with **no**
+  optimization IR; the high-level IR and dictionary elimination come afterwards,
+  on top of a working baseline.
+- Adds a compilation stage and an IR to maintain, introduced to make
+  PureScript-specific optimizations (above) expressible and justified by that
+  payoff.
 
 ## Alternatives considered
 

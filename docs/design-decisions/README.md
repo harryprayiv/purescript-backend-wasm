@@ -35,6 +35,7 @@ history.
 | 0005 | [A high-level optimization IR](0005-high-level-optimization-ir.md) | Proposed |
 | 0006 | [Top-level value bindings (CAFs) as exported globals](0006-top-level-value-bindings-as-globals.md) | Proposed |
 | 0007 | [Positional (tuple) type-class dictionary specialization](0007-positional-dictionary-specialization.md) | Proposed |
+| 0008 | [Constructing recursive type-class dictionary groups](0008-recursive-dictionary-groups.md) | Proposed |
 
 ## Scope
 
