@@ -19,8 +19,13 @@ Key architectural decisions are recorded as ADRs under
 
 ## WIP
 
+- [x] Higher-order functions, with full-support for partial/over application
+- [x] strings, arrays and records
+- [x] Simple pattern matching (single-scrutinee, no case guards)
+- [x] Recursive let-bindings
+- [x] Basic typeclass resolution (no cyclic dependencies like `Effect`'s Functor/Applicative/Monad instances')
 - [ ] `Prelude` interop
-- [ ] Compiling genearal pattern matching (i.e. with multi-scrutinee with case guard) into efficient decision tree
+- [ ] Compiling genearal pattern matching (with multi-scrutinee with case guards) into efficient decision tree
 - [ ] User-defined FFI (beyond the built-in intrinsics table)
 - [ ] Special compiler support for `Effect` and `ST` monad
 - [ ] Optimizations: unboxing, arity raising / uncurrying, nominal record layout,
