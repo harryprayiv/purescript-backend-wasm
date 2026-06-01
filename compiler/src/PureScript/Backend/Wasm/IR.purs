@@ -83,6 +83,8 @@ data Intrinsic
   | StrLen -- String -> Int (UTF-8 byte length, `array.len`)
   | StrConcat -- String -> String -> String (allocate + copy both byte arrays)
   | StrEq -- String -> String -> Boolean (length then byte-by-byte compare)
+  | ArrayLength -- Array a -> Int (`array.len`)
+  | ArrayIndex -- Array a -> Int -> a (`array.get`; the element is already an `eqref`)
 
 derive instance eqIntrinsic :: Eq Intrinsic
 derive instance genericIntrinsic :: Generic Intrinsic _
@@ -133,6 +135,10 @@ data Rhs
   -- | by runtime search of the label-id array (no static layout / type info
   -- | needed — handles methods and superclass fields uniformly, ADR 0007).
   | RProjLabel Atom Int
+  -- | Allocate an `Array` from its (already-`eqref`) elements. An array is the
+  -- | bare `$Vals = (array (mut eqref))` (no wrapping struct), so this lowers to a
+  -- | single `array.new_fixed $Vals [elements]`.
+  | RMkArray (Array Atom)
 
 -- where needed: | RBox Rep Atom | RUnbox Rep Atom
 

@@ -147,6 +147,7 @@ rhsAtoms = case _ of
   RApply f a -> [ f, a ]
   RMkRecord pairs -> map (\(Tuple _ a) -> a) pairs
   RProjLabel a _ -> [ a ]
+  RMkArray as -> as
 
 -- | Every `Atom` appearing in a block.
 blockAtoms :: AnfExpr -> Array Atom
@@ -189,6 +190,14 @@ projLabelIds b = Array.mapMaybe idOf (allRhs b)
   where
   idOf = case _ of
     RProjLabel _ labelId -> Just labelId
+    _ -> Nothing
+
+-- | The element counts of every `RMkArray` in a block.
+arrayLengths :: AnfExpr -> Array Int
+arrayLengths b = Array.mapMaybe lenOf (allRhs b)
+  where
+  lenOf = case _ of
+    RMkArray as -> Just (Array.length as)
     _ -> Nothing
 
 -- | The argument counts of every `RCallKnown` in a block.
@@ -472,3 +481,11 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
         Right prog -> case exported "f" prog of
           Nothing -> fail "expected an exported function f"
           Just fn -> Array.any isPrim (allRhs fn.body) `shouldEqual` true
+
+    it "lowers an array literal to RMkArray over its elements" do
+      -- f = [ 10, 20, 30 ]
+      let f = def "f" (CF.Literal ann (CF.LitArray [ litInt 10, litInt 20, litInt 30 ]))
+      case lower [ f ] of
+        Left err -> fail (show err)
+        Right prog ->
+          (arrayLengths <<< _.body <$> exported "f" prog) `shouldEqual` Just [ 3 ]

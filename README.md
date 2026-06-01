@@ -38,7 +38,10 @@ Code generation, by slice (see
       as label-id-keyed records, method dispatch by runtime label search, instance
       CAFs, superclass access. General extensible records deferred (ADR 0007);
       positional/tuple dictionary specialization is a later optimization (ADR 0007)
-- [ ] **Slice 4** — strings + string runtime + arrays (`show`, `<>`, …)
+- [x] **Slice 4** — scalar literals (`Char`/`Number`/`Boolean`, `i31`/`f64`) +
+      literal-pattern matching (`if`, `case n of 0 ->`); strings (UTF-8 `$Str`,
+      concat/length/equality runtime helpers, string patterns); arrays (`$Vals`
+      literals, length/index). `show` and higher-order array functions deferred
 
 Later:
 

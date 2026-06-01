@@ -97,6 +97,8 @@ foreignIntrinsic = case _ of
   "lenS" -> Just (Tuple StrLen 1)
   "concatS" -> Just (Tuple StrConcat 2)
   "eqS" -> Just (Tuple StrEq 2)
+  "lengthA" -> Just (Tuple ArrayLength 1)
+  "indexA" -> Just (Tuple ArrayIndex 2)
   _ -> Nothing
 
 qualifiedName :: forall a. Qualified a -> a
@@ -158,10 +160,10 @@ lowerArg env expr k = case expr of
   C.Literal _ (C.LitChar c) -> k (ALitInt (toCharCode c))
   C.Literal _ (C.LitBoolean b) -> k (ALitBoolean b)
   C.Literal _ (C.LitString s) -> k (ALitString s)
+  C.Literal _ (C.LitArray elements) -> lowerArgs env elements \atoms -> bindRhs (RMkArray atoms) k
   -- A record literal (and so a type-class dictionary, after its newtype
   -- constructor is erased) becomes a label-id-keyed record (ADR 0001 / 0007).
   C.Literal _ (C.LitObject fields) -> lowerRecord env fields k
-  C.Literal _ _ -> throw (UnsupportedExpr "unsupported literal (Array arrives in Slice 4c)")
   -- `Prim.undefined` is the dummy argument applied to a superclass thunk; the
   -- thunk ignores it, so any boxed value will do.
   C.Var _ (Qualified (Just [ "Prim" ]) "undefined") -> k (ALitInt 0)

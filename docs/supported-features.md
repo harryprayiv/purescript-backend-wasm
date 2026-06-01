@@ -207,6 +207,36 @@ functions, shared and emitted once:
 (ref.i31 (call $rt.strEq <a> <b>))             ;; the i32 0/1 boxed as an i31 Boolean
 ```
 
+## Arrays
+
+```purs
+foreign import lengthA :: forall a. Array a -> Int        -- ArrayLength
+foreign import indexA :: forall a. Array a -> Int -> a    -- ArrayIndex
+
+nums :: Array Int
+nums = [ 10, 20, 30 ]
+
+sumFirstTwo :: Int -> Int
+sumFirstTwo _ = addI (indexA nums 0) (indexA nums 1)      -- 30
+```
+
+An `Array` is the **bare `$Vals = (array (mut eqref))`** — the same heap type ADT
+fields, record values, and closure environments already use — so there is no new
+type. A literal is one `array.new_fixed $Vals [<boxed elements>]`; `lengthA` is
+`array.len` (boxed), and `indexA` is `array.get` (the element is already an
+`eqref`, so nothing is unboxed). Elements being `eqref` is what lets arrays nest
+(`Array (Array Int)`) uniformly.
+
+```wat
+;; [10, 20, 30]
+(array.new_fixed $Vals 3 (struct.new $Int (i32.const 10))
+                         (struct.new $Int (i32.const 20))
+                         (struct.new $Int (i32.const 30)))
+;; lengthA xs  /  indexA xs i
+(struct.new $Int (array.len (ref.cast (ref $Vals) <xs>)))
+(array.get $Vals (ref.cast (ref $Vals) <xs>) <unbox i>)
+```
+
 ## Closures and higher-order functions
 
 ```purs

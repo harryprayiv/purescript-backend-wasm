@@ -532,6 +532,10 @@ genRhs ctx = case _ of
     recE <- genAtom ctx recAtom
     idE <- B.i32Const ctx.mod labelId
     B.call ctx.mod projHelperName [ recE, idE ] B.eqref
+  -- An array is the bare `$Vals` array (it is already an `eqref`).
+  RMkArray elements -> do
+    elemEs <- traverse (genAtom ctx) elements
+    B.arrayNewFixed ctx.mod ctx.rt.valsHt elemEs
   RMkClosure codeName captures -> do
     capEs <- traverse (genAtom ctx) captures
     envArr <- B.arrayNewFixed ctx.mod ctx.rt.valsHt capEs
@@ -582,6 +586,15 @@ genPrim ctx intr args = case intr, args of
     ea <- genAtom ctx a
     eb <- genAtom ctx b
     B.call ctx.mod strEqHelperName [ ea, eb ] B.i32 >>= B.i31New ctx.mod
+  -- Array a -> Int: the element count
+  ArrayLength, [ a ] -> do
+    arr <- genAtom ctx a >>= \e -> B.refCast ctx.mod e ctx.rt.refVals
+    B.arrayLen ctx.mod arr >>= boxInt ctx
+  -- Array a -> Int -> a: read the (already-`eqref`) element at the index
+  ArrayIndex, [ a, i ] -> do
+    arr <- genAtom ctx a >>= \e -> B.refCast ctx.mod e ctx.rt.refVals
+    idx <- unboxIntAtom ctx i
+    B.arrayGet ctx.mod arr idx B.eqref false
   _, _ -> throwException (error "Codegen: intrinsic given an operand list of the wrong arity")
   where
   intBinop op a b = do
