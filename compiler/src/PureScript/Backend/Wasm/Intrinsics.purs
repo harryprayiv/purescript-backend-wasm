@@ -39,6 +39,11 @@ data Intrinsic
   -- | Boolean; `ArrayOrd` returns the comparison delta the caller maps to `Ordering`.
   | ArrayEq
   | ArrayOrd
+  -- | `Data.Functor` / `Control.Apply` / `Control.Bind` on `Array` (higher-order):
+  -- | `map` / `apply` (`<*>`) / `bind` (`>>=`), each building a new `$Vals`.
+  | ArrayMap
+  | ArrayApply
+  | ArrayBind
   | IntToNum -- Int -> Number (`f64.convert_i32_s`)
   | NumToInt -- Number -> Int (`i32.trunc_f64_s`)
   -- | `Data.EuclideanRing`'s `Int` instance: Euclidean division (non-negative
@@ -119,6 +124,10 @@ foreignIntrinsic = case _ of
   -- `Array` equality / ordering (higher-order: element eq/compare closure + arrays)
   "eqArrayImpl" -> Just (Tuple ArrayEq 3)
   "ordArrayImpl" -> Just (Tuple ArrayOrd 3)
+  -- `Array` `Functor` / `Apply` / `Bind`
+  "arrayMap" -> Just (Tuple ArrayMap 2)
+  "arrayApply" -> Just (Tuple ArrayApply 2)
+  "arrayBind" -> Just (Tuple ArrayBind 2)
   -- `Data.HeytingAlgebra` Boolean algebra
   "boolConj" -> Just (Tuple BoolAnd 2)
   "boolDisj" -> Just (Tuple BoolOr 2)

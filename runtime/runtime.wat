@@ -132,6 +132,102 @@
     (array.copy $Vals $Vals (local.get $dest) (local.get $lenA) (local.get $vb) (i32.const 0) (array.len (local.get $vb)))
     (local.get $dest))
 
+  ;; Apply a single-argument closure: f(x).
+  (func $callClo1 (param $f eqref) (param $x eqref) (result eqref)
+    (local $c (ref $Clo))
+    (local.set $c (ref.cast (ref $Clo) (local.get $f)))
+    (call_ref $Code (local.get $c) (local.get $x) (ref.cast (ref $Code) (struct.get $Clo 0 (local.get $c)))))
+
+  ;; $rt.arrayMap(f, xs) -> eqref (Data.Functor's arrayMap): map `f` over the array.
+  (func $rt.arrayMap (export "arrayMap") (param $f eqref) (param $xs eqref) (result eqref)
+    (local $va (ref $Vals))
+    (local $n i32)
+    (local $i i32)
+    (local $out (ref $Vals))
+    (local.set $va (ref.cast (ref $Vals) (local.get $xs)))
+    (local.set $n (array.len (local.get $va)))
+    (local.set $out (array.new $Vals (ref.null none) (local.get $n)))
+    (block $done
+      (loop $loop
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (array.set $Vals (local.get $out) (local.get $i)
+          (call $callClo1 (local.get $f) (array.get $Vals (local.get $va) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $loop)))
+    (local.get $out))
+
+  ;; $rt.arrayApply(fs, xs) -> eqref (Control.Apply's arrayApply): every function in
+  ;; `fs` applied to every element of `xs`, in `fs`-major order (length l*k).
+  (func $rt.arrayApply (export "arrayApply") (param $fs eqref) (param $xs eqref) (result eqref)
+    (local $vf (ref $Vals))
+    (local $vx (ref $Vals))
+    (local $l i32)
+    (local $k i32)
+    (local $i i32)
+    (local $j i32)
+    (local $n i32)
+    (local $f eqref)
+    (local $out (ref $Vals))
+    (local.set $vf (ref.cast (ref $Vals) (local.get $fs)))
+    (local.set $vx (ref.cast (ref $Vals) (local.get $xs)))
+    (local.set $l (array.len (local.get $vf)))
+    (local.set $k (array.len (local.get $vx)))
+    (local.set $out (array.new $Vals (ref.null none) (i32.mul (local.get $l) (local.get $k))))
+    (block $di
+      (loop $li
+        (br_if $di (i32.ge_u (local.get $i) (local.get $l)))
+        (local.set $f (array.get $Vals (local.get $vf) (local.get $i)))
+        (local.set $j (i32.const 0))
+        (block $dj
+          (loop $lj
+            (br_if $dj (i32.ge_u (local.get $j) (local.get $k)))
+            (array.set $Vals (local.get $out) (local.get $n)
+              (call $callClo1 (local.get $f) (array.get $Vals (local.get $vx) (local.get $j))))
+            (local.set $n (i32.add (local.get $n) (i32.const 1)))
+            (local.set $j (i32.add (local.get $j) (i32.const 1)))
+            (br $lj)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $li)))
+    (local.get $out))
+
+  ;; $rt.arrayBind(xs, f) -> eqref (Control.Bind's arrayBind): flatMap. Two passes —
+  ;; first apply `f` to each element (storing the sub-arrays and summing lengths),
+  ;; then copy them into one result.
+  (func $rt.arrayBind (export "arrayBind") (param $xs eqref) (param $f eqref) (result eqref)
+    (local $vx (ref $Vals))
+    (local $n i32)
+    (local $results (ref $Vals))
+    (local $i i32)
+    (local $total i32)
+    (local $sub (ref $Vals))
+    (local $slen i32)
+    (local $out (ref $Vals))
+    (local $o i32)
+    (local.set $vx (ref.cast (ref $Vals) (local.get $xs)))
+    (local.set $n (array.len (local.get $vx)))
+    (local.set $results (array.new $Vals (ref.null none) (local.get $n)))
+    (block $d1
+      (loop $l1
+        (br_if $d1 (i32.ge_u (local.get $i) (local.get $n)))
+        (array.set $Vals (local.get $results) (local.get $i)
+          (call $callClo1 (local.get $f) (array.get $Vals (local.get $vx) (local.get $i))))
+        (local.set $total (i32.add (local.get $total)
+          (array.len (ref.cast (ref $Vals) (array.get $Vals (local.get $results) (local.get $i))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $l1)))
+    (local.set $out (array.new $Vals (ref.null none) (local.get $total)))
+    (local.set $i (i32.const 0))
+    (block $d2
+      (loop $l2
+        (br_if $d2 (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $sub (ref.cast (ref $Vals) (array.get $Vals (local.get $results) (local.get $i))))
+        (local.set $slen (array.len (local.get $sub)))
+        (array.copy $Vals $Vals (local.get $out) (local.get $o) (local.get $sub) (i32.const 0) (local.get $slen))
+        (local.set $o (i32.add (local.get $o) (local.get $slen)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $l2)))
+    (local.get $out))
+
   ;; Apply a curried two-argument closure: f(x)(y). `f` is an arity-1 $Clo whose
   ;; result is itself an arity-1 $Clo (PureScript curries), so two call_ref steps.
   (func $callClo2 (param $f eqref) (param $x eqref) (param $y eqref) (result eqref)

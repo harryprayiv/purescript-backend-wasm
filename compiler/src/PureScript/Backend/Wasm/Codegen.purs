@@ -100,6 +100,9 @@ importRuntime ctx = do
   imp arrayConcatHelperName "arrayConcat" [ B.eqref, B.eqref ] B.eqref
   imp arrayEqHelperName "arrayEq" [ B.eqref, B.eqref, B.eqref ] B.i32
   imp arrayOrdHelperName "arrayOrd" [ B.eqref, B.eqref, B.eqref ] B.i32
+  imp arrayMapHelperName "arrayMap" [ B.eqref, B.eqref ] B.eqref
+  imp arrayApplyHelperName "arrayApply" [ B.eqref, B.eqref ] B.eqref
+  imp arrayBindHelperName "arrayBind" [ B.eqref, B.eqref ] B.eqref
   imp showIntHelperName "showInt" [ B.i32 ] B.eqref
   imp showCharHelperName "showChar" [ B.i32 ] B.eqref
   imp showStringHelperName "showString" [ B.eqref ] B.eqref
@@ -136,6 +139,16 @@ arrayEqHelperName = "$rt.arrayEq"
 
 arrayOrdHelperName :: String
 arrayOrdHelperName = "$rt.arrayOrd"
+
+-- | The shared higher-order `Array` `Functor`/`Apply`/`Bind` helpers.
+arrayMapHelperName :: String
+arrayMapHelperName = "$rt.arrayMap"
+
+arrayApplyHelperName :: String
+arrayApplyHelperName = "$rt.arrayApply"
+
+arrayBindHelperName :: String
+arrayBindHelperName = "$rt.arrayBind"
 
 -- | The shared `Show` rendering helpers (defined in `runtime.wat`).
 showIntHelperName :: String
@@ -547,6 +560,11 @@ genPrim ctx intr args = case intr, args of
     exs <- genAtom ctx xs
     eys <- genAtom ctx ys
     B.call ctx.mod arrayOrdHelperName [ ef, exs, eys ] B.i32 >>= boxInt ctx
+  -- Array Functor / Apply / Bind: the higher-order helpers build a new `$Vals`
+  -- (already an `eqref`, so no boxing). Operand order matches the foreign.
+  ArrayMap, [ f, xs ] -> arrayHof arrayMapHelperName f xs
+  ArrayApply, [ fs, xs ] -> arrayHof arrayApplyHelperName fs xs
+  ArrayBind, [ xs, f ] -> arrayHof arrayBindHelperName xs f
   -- Euclidean Int division/remainder/degree: unbox, delegate to the shared
   -- runtime helpers (zero guard + non-negative remainder), re-box the result.
   IntDiv, [ a, b ] -> intCall2 intDivHelperName a b
@@ -643,6 +661,11 @@ genPrim ctx intr args = case intr, args of
     ea <- unboxIntAtom ctx a
     eb <- unboxIntAtom ctx b
     B.call ctx.mod name [ ea, eb ] B.i32 >>= boxInt ctx
+  -- a binary higher-order array helper: two `eqref` operands → an `eqref` result.
+  arrayHof name a b = do
+    ea <- genAtom ctx a
+    eb <- genAtom ctx b
+    B.call ctx.mod name [ ea, eb ] B.eqref
   boolBinop op a b = do
     ea <- genAtom ctx a >>= unboxBoolExpr ctx
     eb <- genAtom ctx b >>= unboxBoolExpr ctx
