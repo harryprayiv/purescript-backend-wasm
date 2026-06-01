@@ -4,6 +4,19 @@ What PureScript currently compiles, and the WebAssembly (WAT) it lowers to.
 This tracks the implemented slices (see the README roadmap); it is descriptive,
 not a design decision.
 
+- [Compilation model](#compilation-model-how-to-read-the-wat)
+- [Top-level functions](#top-level-functions)
+- [Algebraic data types and single-scrutinee pattern matching](#algebraic-data-types-and-single-scrutinee-pattern-matching)
+- [Scalar literals and literal patterns](#scalar-literals-and-literal-patterns)
+- [Strings](#strings)
+- [Arrays](#arrays)
+- [Closures and Higher-order functions](#closures-and-higher-order-functions)
+- [Function application, partial and over](#function-application-partial-and-over)
+- [Recursive Let-bindings](#recursive-let-bindings)
+- [Typeclasses (Not optimized!)](#typeclass-dictionaries-not-optimized)
+- [Records](#records)
+- [Host Interface](#host-interface)
+
 ## Compilation model (how to read the WAT)
 
 Per ADR 0001 / 0004, every runtime value is a **boxed `eqref`**, and internal
@@ -21,7 +34,7 @@ functions take and return `eqref`. The recurring shapes in the WAT:
 Binaryen prunes unused types, so a module that only uses `Int` shows just the
 boxed-`Int` struct.
 
-## Top-level functions, saturated application, and 32-bit integer arithmetic
+## Top-level functions
 
 ```purs
 foreign import addI :: Int -> Int -> Int
@@ -286,7 +299,7 @@ argument (eval/apply, ADR 0003).
   (local.get $2))
 ```
 
-## Partial and over-application
+## Function application, partial and over
 
 ```purs
 addN :: Int -> Int -> Int
@@ -339,7 +352,7 @@ an unknown value: `f x y` becomes a chain of single-argument `call_ref`s.)
   (local.get $2))
 ```
 
-## Recursion
+## Recursive Let-bindings
 
 Top-level mutual recursion needs nothing special — each call is a saturated,
 known, direct `call` (e.g. `isEvenN`/`isOddN` calling each other). A
@@ -388,7 +401,7 @@ lifted to top-level code functions (`$code0`/`$code1`, omitted here). The body o
   (local.get $3))
 ```
 
-## Type-class dictionaries
+## Typeclass dictionaries (Not optimized!)
 
 ```purs
 class Addable a where
@@ -483,13 +496,16 @@ the dictionary and projection altogether — `add dict x y → intAdd x y` — i
 separate, further optimization of **ADR 0005** (dictionary elimination). Both are
 Proposed, not yet implemented.
 
-## Real `Prelude` arithmetic (`Semiring` / `Ring`)
+## Real `Prelude` arithmetic and comparison (`Semiring`/`Ring`, `Eq`/`Ord`)
 
 ```purs
 import Prelude
 
 poly :: Int -> Int -> Int
 poly a b = a * a + b * b - a            -- real `+` / `*` / `-`, no foreign imports
+
+cmp :: Int -> Int -> Int
+cmp a b = if a == b then 0 else if a < b then -1 else 1   -- real `==` / `<`
 ```
 
 `+` / `*` / `-` on `Int` go through the **real `Prelude`**, not hand-written
@@ -511,8 +527,15 @@ Two pieces of the build make this practical (ADR 0009):
   not yet supported); none are visited, because `poly` reaches only `semiringInt`,
   the `add`/`mul` accessors, and the `intAdd`/`intMul` intrinsics.
 
-`Number` arithmetic, and the rest of the numeric hierarchy
-(`EuclideanRing` `/`, `DivisionRing`, …), are not wired up yet.
+**`Eq` / `Ord`** work the same way. `==` is the `Eq` dictionary's `eqIntImpl`
+(→ `i32.eq`). `Ord`'s `compare` is `ordIntImpl LT EQ GT` — an intrinsic that
+selects the `Ordering` ADT (`LT`/`EQ`/`GT`, an ordinary data type) by a signed
+`i32` comparison; `<` / `>` / `<=` derive from `compare` via a constructor match
+(which is why a `case` on constructors now also takes a catch-all `_` default).
+
+`Number` arithmetic, the `Boolean`/aggregate `Eq`/`Ord` instances, `Show`, and the
+rest of the numeric hierarchy (`EuclideanRing` `/`, `DivisionRing`, …), are not
+wired up yet.
 
 ## Records
 
