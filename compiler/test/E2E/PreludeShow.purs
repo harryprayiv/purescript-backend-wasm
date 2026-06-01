@@ -76,3 +76,13 @@ spec =
           family <- liftEffect (callI32x0 inst "showEmojiFamily")
           bmp <- liftEffect (callI32x0 inst "showBmpChar")
           [ smiley, family, bmp ] `shouldEqual` [ 1, 1, 1 ]
+
+        -- Integration check only; `compiler/test/showNumber.mjs` is the exhaustive
+        -- oracle test (millions of values vs JS `String(n)`).
+        it "shows Numbers: 0.0, fraction, integer, and exponential forms" \inst -> do
+          z <- liftEffect (callI32x0 inst "showNumZero")
+          f <- liftEffect (callI32x0 inst "showNumFrac")
+          i <- liftEffect (callI32x0 inst "showNumInt")
+          eb <- liftEffect (callI32x0 inst "showNumExpBig")
+          es <- liftEffect (callI32x0 inst "showNumExpSmall")
+          [ z, f, i, eb, es ] `shouldEqual` [ 1, 1, 1, 1, 1 ]

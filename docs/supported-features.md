@@ -600,8 +600,8 @@ is now desugared into right-nested single-scrutinee `case`s (one per column),
 reusing the per-column lowering. (Multi-*alternative* multi-scrutinee matches still
 need real column-wise pattern compilation and remain unsupported.)
 
-**`Data.Show`** for `Int`, `Boolean`, `Char`, `String`, and `Array` — everything
-except `Number`. The string-building work lives in `runtime.wat` (ADR 0010):
+**`Data.Show`** for every primitive type — `Int`, `Boolean`, `Char`, `String`,
+`Array`, and `Number`. The rendering work lives in `runtime.wat` (ADR 0010):
 
 - `Int` (`showIntImpl`) → `$rt.showInt`: write the base-10 digits into an 11-byte
   scratch from the right (extract with `rem_s` / `div_s`, `abs` of each remainder, so
@@ -619,11 +619,18 @@ except `Number`. The string-building work lives in `runtime.wat` (ADR 0010):
   closure across the module boundary — it relies on the same structural GC-type
   identity (now also for `$Clo` / `$Code`) that the import boundary uses.
 
-`show` on **`Number`** is deliberately left unwired: matching JS `Number.toString()`
-needs a *shortest round-trip* float-to-decimal algorithm (Ryū / Grisu / Dragon4) — a
-large, self-contained piece (128-bit / `i64` arithmetic and power-of-ten tables) that
-belongs with the user-defined-FFI work. It can be added to `runtime.wat` (or merged
-in as its own module) later.
+- `Number` (`showNumberImpl`) → `$rt.showNumber`: the shortest decimal that
+  round-trips to the same `f64`, matching JS `Number.toString()` exactly. It uses
+  **Dragon4** (Steele–White / Burger–Dybvig) — a fixed-capacity big-integer (64
+  `i32` limbs, base 2³², stored in the same `(array (mut i32))` as `$Bytes`) drives an
+  exact scaled-value digit loop, so **no power-of-ten tables** are needed (the reason
+  Ryū is impractical to hand-write in WAT). The digits + decimal-point position then
+  go through the ECMAScript `Number::toString` formatting rules (fixed vs
+  exponential, the `.0` suffix on integers, `Infinity`/`NaN`). Because the WAT can't
+  be eyeballed for correctness, `compiler/test/showNumber.mjs` is an oracle test that
+  drives the runtime from JS and compares against `String(n)` over **>1M random
+  `f64` bit patterns** plus hand-picked edge cases (subnormals, `MAX_VALUE`,
+  `5e-324`, powers of ten, `±0`, …) — currently bit-exact on every value.
 
 The `Boolean`/aggregate `Eq`/`Ord` instances, `Data.Int.round`/`floor`/`…`, and
 `Number`'s `Ord`, are not wired up yet.

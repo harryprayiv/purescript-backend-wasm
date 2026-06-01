@@ -101,6 +101,7 @@ importRuntime ctx = do
   imp showCharHelperName "showChar" [ B.i32 ] B.eqref
   imp showStringHelperName "showString" [ B.eqref ] B.eqref
   imp showArrayHelperName "showArray" [ B.eqref, B.eqref ] B.eqref
+  imp showNumberHelperName "showNumber" [ B.f64 ] B.eqref
   imp intModHelperName "intMod" [ B.i32, B.i32 ] B.i32
   imp intDivHelperName "intDiv" [ B.i32, B.i32 ] B.i32
   imp intDegreeHelperName "intDegree" [ B.i32 ] B.i32
@@ -134,6 +135,9 @@ showStringHelperName = "$rt.showString"
 
 showArrayHelperName :: String
 showArrayHelperName = "$rt.showArray"
+
+showNumberHelperName :: String
+showNumberHelperName = "$rt.showNumber"
 
 -- | The shared Euclidean `Int` division/remainder/degree helpers (see
 -- | `addIntEuclidHelpers`).
@@ -575,6 +579,10 @@ genPrim ctx intr args = case intr, args of
     ef <- genAtom ctx f
     exs <- genAtom ctx xs
     B.call ctx.mod showArrayHelperName [ ef, exs ] B.eqref
+  -- Number -> String: unbox the `$Num` to f64, delegate to the Dragon4 helper
+  ShowNumber, [ a ] -> do
+    ea <- genAtom ctx a >>= unboxNumExpr ctx
+    B.call ctx.mod showNumberHelperName [ ea ] B.eqref
   StrEq, [ a, b ] -> do
     ea <- genAtom ctx a
     eb <- genAtom ctx b

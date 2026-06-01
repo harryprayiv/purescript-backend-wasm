@@ -73,3 +73,19 @@ showEmojiFamily = if show "👨‍👩‍👧‍👧" == "\"👨‍👩‍👧�
 -- a single BMP code point IS a valid Char (astral ones aren't — purs rejects them)
 showBmpChar :: Int
 showBmpChar = if show '☺' == "'☺'" then 1 else 0
+
+-- show Number (Dragon4 shortest round-trip + ECMAScript formatting)
+showNumZero :: Int
+showNumZero = if show 0.0 == "0.0" then 1 else 0
+
+showNumFrac :: Int
+showNumFrac = if show 0.1 == "0.1" then 1 else 0
+
+showNumInt :: Int
+showNumInt = if show 100.0 == "100.0" then 1 else 0
+
+showNumExpBig :: Int
+showNumExpBig = if show 1.0e21 == "1e+21" then 1 else 0
+
+showNumExpSmall :: Int
+showNumExpSmall = if show 1.0e-7 == "1e-7" then 1 else 0

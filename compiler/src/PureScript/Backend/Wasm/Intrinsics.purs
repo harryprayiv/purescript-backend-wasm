@@ -52,6 +52,7 @@ data Intrinsic
   | ShowChar -- Char -> String (`Data.Show`'s `showCharImpl`: quote + escape, runtime helper)
   | ShowString -- String -> String (`Data.Show`'s `showStringImpl`: quote + escape, runtime helper)
   | ShowArray -- (a -> String) -> Array a -> String (`showArrayImpl`: join element shows, runtime helper)
+  | ShowNumber -- Number -> String (`showNumberImpl`: shortest round-trip via Dragon4, runtime helper)
   -- | `Data.Bounded`'s `top` / `bottom` for `Int` / `Char` / `Number`: nullary
   -- | constant values (the foreign is a bare value, not a function — arity 0).
   | TopInt -- maxBound Int (`i32.const 2147483647`)
@@ -111,6 +112,7 @@ foreignIntrinsic = case _ of
   "showCharImpl" -> Just (Tuple ShowChar 1)
   "showStringImpl" -> Just (Tuple ShowString 1)
   "showArrayImpl" -> Just (Tuple ShowArray 2)
+  "showNumberImpl" -> Just (Tuple ShowNumber 1)
   "numAdd" -> Just (Tuple NumAdd 2)
   "numMul" -> Just (Tuple NumMul 2)
   "numSub" -> Just (Tuple NumSub 2)
