@@ -1,6 +1,6 @@
 module Slice4c where
 
-foreign import addI :: Int -> Int -> Int
+foreign import intAdd :: Int -> Int -> Int
 foreign import lengthA :: forall a. Array a -> Int
 foreign import indexA :: forall a. Array a -> Int -> a
 
@@ -14,7 +14,7 @@ nthNum :: Int -> Int
 nthNum i = indexA nums i
 
 sumFirstTwo :: Int -> Int
-sumFirstTwo _ = addI (indexA nums 0) (indexA nums 1)
+sumFirstTwo _ = intAdd (indexA nums 0) (indexA nums 1)
 
 -- a nested array, indexed twice
 grid :: Array (Array Int)

@@ -9,6 +9,7 @@ import Data.Generic.Rep (class Generic)
 import Data.Maybe (Maybe)
 import Data.Show.Generic (genericShow)
 import Data.Tuple (Tuple)
+import PureScript.Backend.Wasm.Intrinsics (Intrinsic)
 
 -- | The wasm-level representation chosen for a value.
 -- | CoreFn is type-erased, but the code generator must commit to concrete wasm types. 
@@ -65,42 +66,6 @@ data Atom
 derive instance eqAtom :: Eq Atom
 derive instance genericAtom :: Generic Atom _
 instance showAtom :: Show Atom where
-  show = genericShow
-
--- | The inlined machine ops (ADR 0002, tier 1).
--- |
--- | Why a closed enum keyed by operation rather than by CoreFn name: it
--- | decouples the IR from the foreign *identifiers* a given Prelude version
--- | uses. The lowering owns the mapping from a foreign `Qualified Ident` to one
--- | of these; codegen owns the mapping from these to Binaryen instructions.
-data Intrinsic
-  = IntAdd
-  | IntSub
-  | IntMul
-  | IntEq -- Int -> Int -> Boolean (`i32.eq`, result boxed as an `i31` Boolean)
-  -- | `Data.Ord`'s `ordIntImpl lt eq gt x y`: the `Ordering` (`lt`/`eq`/`gt`) of
-  -- | two `Int`s. Five operands — the three `Ordering` values and the two ints —
-  -- | selected by a signed `i32` comparison.
-  | OrdInt
-  | IntToNum -- Int -> Number (`f64.convert_i32_s`)
-  | NumToInt -- Number -> Int (`i32.trunc_f64_s`)
-  | NumAdd -- Number -> Number -> Number (`f64.add`)
-  | NumSub -- Number -> Number -> Number (`f64.sub`)
-  | NumMul -- Number -> Number -> Number (`f64.mul`)
-  | NumDiv -- Number -> Number -> Number (`f64.div`)
-  | NumEq -- Number -> Number -> Boolean (`f64.eq`, result boxed as an `i31` Boolean)
-  | BoolAnd -- Boolean -> Boolean -> Boolean (`i32.and` on the i31 bits)
-  | BoolOr -- Boolean -> Boolean -> Boolean (`i32.or`)
-  | BoolNot -- Boolean -> Boolean (`i32.eqz`)
-  | StrLen -- String -> Int (UTF-8 byte length, `array.len`)
-  | StrConcat -- String -> String -> String (allocate + copy both byte arrays)
-  | StrEq -- String -> String -> Boolean (length then byte-by-byte compare)
-  | ArrayLength -- Array a -> Int (`array.len`)
-  | ArrayIndex -- Array a -> Int -> a (`array.get`; the element is already an `eqref`)
-
-derive instance eqIntrinsic :: Eq Intrinsic
-derive instance genericIntrinsic :: Generic Intrinsic _
-instance showIntrinsic :: Show Intrinsic where
   show = genericShow
 
 -- | The name of a top-level function, as it will be known to codegen and to

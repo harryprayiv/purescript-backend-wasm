@@ -1,9 +1,9 @@
 module LinkB where
 
-foreign import addI :: Int -> Int -> Int
+foreign import intAdd :: Int -> Int -> Int
 
 double :: Int -> Int
-double x = addI x x
+double x = intAdd x x
 
 data Pair = Pair Int Int
 

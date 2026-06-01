@@ -1,13 +1,13 @@
 module Slice3 where
 
-foreign import addI :: Int -> Int -> Int
+foreign import intAdd :: Int -> Int -> Int
 
 class Addable a where
   plus :: a -> a -> a
   nil :: a
 
 instance addableInt :: Addable Int where
-  plus x y = addI x y
+  plus x y = intAdd x y
   nil = 0
 
 double :: forall a. Addable a => a -> a

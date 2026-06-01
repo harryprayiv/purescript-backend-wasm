@@ -38,17 +38,17 @@ boxed-`Int` struct.
 ## Top-level functions
 
 ```purs
-foreign import addI :: Int -> Int -> Int
+foreign import intAdd :: Int -> Int -> Int
 
 addN :: Int -> Int -> Int
-addN x y = addI x y
+addN x y = intAdd x y
 
 five :: Int
 five = addN 2 3
 ```
 
-`addI` is a module-local foreign primitive mapped to the `i32.add` intrinsic
-(ADR 0002); `mulI`/`subI` map to `i32.mul`/`i32.sub` the same way. `Int`
+`intAdd` is a module-local foreign primitive mapped to the `i32.add` intrinsic
+(ADR 0002); `intMul`/`intSub` map to `i32.mul`/`i32.sub` the same way. `Int`
 literals box an `i32.const`. `five` is a saturated call to `addN`, which lowers
 to a direct `call`. Full emitted WAT:
 
@@ -231,7 +231,7 @@ nums :: Array Int
 nums = [ 10, 20, 30 ]
 
 sumFirstTwo :: Int -> Int
-sumFirstTwo _ = addI (indexA nums 0) (indexA nums 1)      -- 30
+sumFirstTwo _ = intAdd (indexA nums 0) (indexA nums 1)      -- 30
 ```
 
 An `Array` is the **bare `$Vals = (array (mut eqref))`** — the same heap type ADT
@@ -254,19 +254,19 @@ type. A literal is one `array.new_fixed $Vals [<boxed elements>]`; `lengthA` is
 ## Closures and higher-order functions
 
 ```purs
-foreign import addI :: Int -> Int -> Int
+foreign import intAdd :: Int -> Int -> Int
 
 applyTwice :: (Int -> Int) -> Int -> Int
 applyTwice f x = f (f x)
 
 twiceAdd :: Int -> Int -> Int
-twiceAdd k x = applyTwice (\y -> addI k y) x
+twiceAdd k x = applyTwice (\y -> intAdd k y) x
 ```
 
 A closure is `(struct funcref (ref env))`: a **code pointer** plus a captured-
 environment array. A lambda is lambda-lifted to a top-level code function whose
 *first* parameter is its own closure (so it can read captures from the env);
-`twiceAdd` builds the closure for `\y -> addI k y`, capturing `k` in the env.
+`twiceAdd` builds the closure for `\y -> intAdd k y`, capturing `k` in the env.
 Applying an *unknown* function value (here `applyTwice`'s parameter `f`) loads
 its code pointer and uses `call_ref`, passing the closure itself as the first
 argument (eval/apply, ADR 0003).
@@ -277,7 +277,7 @@ argument (eval/apply, ADR 0003).
 ;;        $3 = (func (param (ref $2) eqref) (result eqref)) code signature
 (func $M.twiceAdd (param $0 eqref) (param $1 eqref) (result eqref)   ;; k, x
   (local $2 eqref) (local $3 eqref)
-  ;; (\y -> addI k y) : closure over code $code0, capturing k in env slot 0
+  ;; (\y -> intAdd k y) : closure over code $code0, capturing k in env slot 0
   (local.set $2 (struct.new $2 (ref.func $M.$code0) (array.new_fixed $1 1 (local.get $0))))
   ;; applyTwice is known & saturated -> direct call
   (local.set $3 (call $M.applyTwice (local.get $2) (local.get $1)))
@@ -291,7 +291,7 @@ argument (eval/apply, ADR 0003).
   (local.set $3 (call_ref $3 (ref.cast (ref $2) (local.get $0)) (local.get $2)
                   (ref.cast (ref $3) (struct.get $2 0 (ref.cast (ref $2) (local.get $0))))))
   (local.get $3))
-;; the lifted body of (\y -> addI k y): k lives in env slot 0, y is the argument
+;; the lifted body of (\y -> intAdd k y): k lives in env slot 0, y is the argument
 (func $M.$code0 (param $0 (ref $2)) (param $1 eqref) (result eqref)
   (local $2 eqref)
   (local.set $2 (struct.new $0 (i32.add
@@ -304,7 +304,7 @@ argument (eval/apply, ADR 0003).
 
 ```purs
 addN :: Int -> Int -> Int
-addN x y = addI x y
+addN x y = intAdd x y
 
 add3 :: Int -> Int
 add3 = addN 3       -- partial application of a known 2-arg function (a PAP)
@@ -410,7 +410,7 @@ class Addable a where
   nil :: a
 
 instance addableInt :: Addable Int where
-  plus x y = addI x y
+  plus x y = intAdd x y
   nil = 0
 
 double :: forall a. Addable a => a -> a
@@ -561,7 +561,7 @@ getX :: Point -> Int
 getX p = p.x                             -- field access
 
 moveX :: Point -> Point
-moveX p = p { x = addI p.x 5 }           -- update
+moveX p = p { x = intAdd p.x 5 }           -- update
 
 patX :: Point -> Int
 patX { x } = x                           -- pattern destructuring

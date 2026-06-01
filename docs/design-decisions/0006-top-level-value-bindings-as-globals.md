@@ -78,7 +78,7 @@ globalized; recursive non-function values remain unsupported.
   recomputed on each call. Rejected as the long-term shape for pure values.
 - **Constant-expression globals (extended-const / GC const exprs).** Works only
   for the narrow subset whose initializer is itself a constant expression
-  (`five = addI 2 3` could become `(i32.add (i32.const 2) (i32.const 3))`), since
+  (`five = intAdd 2 3` could become `(i32.add (i32.const 2) (i32.const 3))`), since
   no function call is permitted. Too special-case to be the general mechanism;
   the init-function approach subsumes it.
 - **Lazy thunks for all CAFs.** More general — it also handles cyclic value

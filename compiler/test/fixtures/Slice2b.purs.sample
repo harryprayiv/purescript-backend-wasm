@@ -16,10 +16,10 @@
 -- | README.md for how to regenerate the `.corefn.json`.
 module Slice2b where
 
-foreign import addI :: Int -> Int -> Int
+foreign import intAdd :: Int -> Int -> Int
 
 addN :: Int -> Int -> Int
-addN x y = addI x y
+addN x y = intAdd x y
 
 add3 :: Int -> Int
 add3 = addN 3
@@ -48,7 +48,7 @@ countN n =
   let
     go acc m = case m of
       Z -> acc
-      S k -> go (addI acc 1) k
+      S k -> go (intAdd acc 1) k
   in
     go 0 n
 

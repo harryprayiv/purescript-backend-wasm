@@ -1,1 +1,1 @@
-export const addI = x => y => x + y;
+export const intAdd = x => y => x + y;

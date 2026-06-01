@@ -52,7 +52,8 @@ import Foreign.Object as Object
 import PureScript.Backend.Wasm.Lower.FreeVars (freeVars)
 import PureScript.Backend.Wasm.Lower.Monad (Lower, LowerError(..), fresh, throw)
 import PureScript.Backend.Wasm.Lower.Monad (LowerError(..)) as ReExport
-import PureScript.Backend.Wasm.IR (Atom(..), AnfExpr(..), Branch(..), FuncName(..), IRFunc, Intrinsic(..), LitBranch(..), LitPat(..), Program, RecBind(..), Rep(..), Rhs(..), Slot(..), VarRef(..))
+import PureScript.Backend.Wasm.Intrinsics (foreignIntrinsic)
+import PureScript.Backend.Wasm.IR (Atom(..), AnfExpr(..), Branch(..), FuncName(..), IRFunc, LitBranch(..), LitPat(..), Program, RecBind(..), Rep(..), Rhs(..), Slot(..), VarRef(..))
 import PureScript.CoreFn (Bind(..), Module, Qualified(..))
 import PureScript.CoreFn as C
 
@@ -84,46 +85,6 @@ type Env =
   , dictCtors :: Object Unit
   , labelIds :: Object Int
   }
-
--- | The foreign-primitive table (ADR 0002's `ForeignProvider`, hard-coded): a
--- | module-local foreign identifier → its machine op + arity.
--- | The foreign-primitive table (ADR 0002's `ForeignProvider`, hard-coded). Keyed
--- | by the foreign *identifier*: the test fixtures' own names (`addI`, …) and the
--- | real `Prelude`'s (`intAdd`, …) sit side by side, both unique.
-foreignIntrinsic :: String -> Maybe (Tuple Intrinsic Int)
-foreignIntrinsic = case _ of
-  "addI" -> Just (Tuple IntAdd 2)
-  "mulI" -> Just (Tuple IntMul 2)
-  "subI" -> Just (Tuple IntSub 2)
-  "eqI" -> Just (Tuple IntEq 2)
-  "intToNum" -> Just (Tuple IntToNum 1)
-  "numToInt" -> Just (Tuple NumToInt 1)
-  "lenS" -> Just (Tuple StrLen 1)
-  "concatS" -> Just (Tuple StrConcat 2)
-  "eqS" -> Just (Tuple StrEq 2)
-  "lengthA" -> Just (Tuple ArrayLength 1)
-  "indexA" -> Just (Tuple ArrayIndex 2)
-  -- real Prelude: `Data.Semiring` / `Data.Ring` integer arithmetic
-  "intAdd" -> Just (Tuple IntAdd 2)
-  "intMul" -> Just (Tuple IntMul 2)
-  "intSub" -> Just (Tuple IntSub 2)
-  -- real Prelude: `Data.Eq` / `Data.Ord` on Int (and Char, which shares its rep)
-  "eqIntImpl" -> Just (Tuple IntEq 2)
-  "eqCharImpl" -> Just (Tuple IntEq 2)
-  "eqStringImpl" -> Just (Tuple StrEq 2)
-  "ordIntImpl" -> Just (Tuple OrdInt 5)
-  -- real Prelude: `Data.HeytingAlgebra` Boolean algebra
-  "boolConj" -> Just (Tuple BoolAnd 2)
-  "boolDisj" -> Just (Tuple BoolOr 2)
-  "boolNot" -> Just (Tuple BoolNot 1)
-  -- real Prelude: `Number` arithmetic + `Int`/`Number` conversion
-  "numAdd" -> Just (Tuple NumAdd 2)
-  "numMul" -> Just (Tuple NumMul 2)
-  "numSub" -> Just (Tuple NumSub 2)
-  "numDiv" -> Just (Tuple NumDiv 2)
-  "eqNumberImpl" -> Just (Tuple NumEq 2)
-  "toNumber" -> Just (Tuple IntToNum 1)
-  _ -> Nothing
 
 -- | The globally-unique key/name for a module-qualified top-level identifier:
 -- | `Module.ident`. The same string is used as a symbol-table key and as the

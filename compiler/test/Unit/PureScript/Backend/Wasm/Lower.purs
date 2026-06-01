@@ -301,9 +301,9 @@ liftedFuncs :: Program -> Array IRFunc
 liftedFuncs prog = Array.filter (\fn -> fn.export == Nothing) prog.funcs
 
 -- A function with a capturing lambda applied immediately:
--- `f a b = (\y -> addI a y) b`. The lambda captures `a`.
+-- `f a b = (\y -> intAdd a y) b`. The lambda captures `a`.
 fDecl :: CF.Bind
-fDecl = def "f" (lam "a" (lam "b" (appE (lam "y" (appE (appE (qv "addI") (lv "a")) (lv "y"))) (lv "b"))))
+fDecl = def "f" (lam "a" (lam "b" (appE (lam "y" (appE (appE (qv "intAdd") (lv "a")) (lv "y"))) (lv "b"))))
 
 spec :: Spec Unit
 spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
@@ -354,8 +354,8 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
           Just fn -> Array.length (Array.filter isApply (allRhs fn.body)) `shouldEqual` 2
 
     it "keeps a saturated intrinsic as a primitive, not an apply" do
-      -- h x = addI x x
-      let h = def "h" (lam "x" (appE (appE (qv "addI") (lv "x")) (lv "x")))
+      -- h x = intAdd x x
+      let h = def "h" (lam "x" (appE (appE (qv "intAdd") (lv "x")) (lv "x")))
       case lower [ h ] of
         Left err -> fail (show err)
         Right prog -> case exported "h" prog of
@@ -365,8 +365,8 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
             Array.any isApply (allRhs fn.body) `shouldEqual` false
 
     it "lowers a partial application of a known function to a closure (PAP)" do
-      -- two a b = addI a b ; p x = two x   -- `two x` is under-applied
-      let two = def "two" (lam "a" (lam "b" (appE (appE (qv "addI") (lv "a")) (lv "b"))))
+      -- two a b = intAdd a b ; p x = two x   -- `two x` is under-applied
+      let two = def "two" (lam "a" (lam "b" (appE (appE (qv "intAdd") (lv "a")) (lv "b"))))
       let p = def "p" (lam "x" (appE (qv "two") (lv "x")))
       case lower [ two, p ] of
         Left err -> fail (show err)
@@ -573,9 +573,9 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
 
   describe "linking" do
     it "resolves a cross-module call by qualified name and exports only roots" do
-      -- module B: foo x = addI x x ; module A: f x = B.foo x  (root = A)
+      -- module B: foo x = intAdd x x ; module A: f x = B.foo x  (root = A)
       let
-        modB = moduleNamed [ "B" ] [ def "foo" (lam "x" (appE (appE (qvIn "B" "addI") (lv "x")) (lv "x"))) ]
+        modB = moduleNamed [ "B" ] [ def "foo" (lam "x" (appE (appE (qvIn "B" "intAdd") (lv "x")) (lv "x"))) ]
         modA = moduleNamed [ "A" ] [ def "f" (lam "x" (appE (qvIn "B" "foo") (lv "x"))) ]
       case lowerModules [ [ "A" ] ] [ modA, modB ] of
         Left err -> fail (show err)

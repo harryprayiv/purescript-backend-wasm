@@ -10,17 +10,17 @@
 -- | the `.corefn.json`.
 module Slice0 where
 
-foreign import addI :: Int -> Int -> Int
-foreign import mulI :: Int -> Int -> Int
+foreign import intAdd :: Int -> Int -> Int
+foreign import intMul :: Int -> Int -> Int
 
 double :: Int -> Int
-double x = addI x x
+double x = intAdd x x
 
 quad :: Int -> Int
 quad x = double (double x)
 
 sumOfSquares :: Int -> Int -> Int
-sumOfSquares x y = addI (mulI x x) (mulI y y)
+sumOfSquares x y = intAdd (intMul x x) (intMul y y)
 
 five :: Int
-five = addI 2 3
+five = intAdd 2 3
