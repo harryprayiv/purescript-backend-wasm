@@ -41,6 +41,7 @@ type BuildOption =
   , entryModules :: NEL.NonEmptyList String
   , text :: Boolean
   , debug :: Boolean
+  , noOpt :: Boolean
   }
 
 buildOptionsParser :: ArgParser BuildOption
@@ -67,6 +68,11 @@ buildOptionsParser =
         ArgParser.flag [ "-g", "--debug" ]
           "Debug build: skip the Binaryen optimizer (keeps the wasm close to the\n\
           \emitted IR; also the future home of source-map output)."
+          # ArgParser.boolean
+    , noOpt:
+        ArgParser.flag [ "--no-opt" ]
+          "Skip the middle-end optimization (dictionary elimination); lambda lifting\n\
+          \still runs. Use to build an unoptimized baseline for benchmarking."
           # ArgParser.boolean
     }
 
@@ -126,7 +132,7 @@ buildCmd args = do
       Left err -> throwError (error (printModname mod <> ": " <> err))
       Right m -> pure m
   let roots = map entryRoot (Array.fromFoldable args.entryModules)
-  let opts = { optimize: not args.debug }
+  let opts = { optimize: not args.debug, optimizeMir: not args.noOpt }
   -- one bundle per build: place it in a directory named after the (first) entry
   -- module, mirroring purs / backend-es (`<output>/<Entry>/index.{wasm,wat}`), so
   -- companion artifacts (a .wat, a future JS loader / source map) sit together.

@@ -34,8 +34,10 @@ parseModule source = case jsonParser source of
 -- | Build options. `optimize` runs Binaryen's optimizer (which also DCE-drops the
 -- | non-root functions); turning it off (a debug build) keeps the wasm closer to
 -- | the emitted IR — and is where source-map support will hang once CoreFn source
--- | spans are threaded through to Binaryen debug locations.
-type CompileOptions = { optimize :: Boolean }
+-- | spans are threaded through to Binaryen debug locations. `optimizeMir` toggles
+-- | the middle-end (dictionary elimination); off builds an unoptimized baseline
+-- | (lambda lifting still runs, since it is needed for constant-stack tail recursion).
+type CompileOptions = { optimize :: Boolean, optimizeMir :: Boolean }
 
 -- | Link the given modules into one validated wasm and run `emit` on it (e.g.
 -- | `emitBinary` or `emitText`). `roots` are the entry modules whose functions
@@ -48,7 +50,7 @@ withCompiledModule
   -> Array ModuleName
   -> Array Module
   -> Effect (Either String a)
-withCompiledModule opts emit roots modules = case lowerModules roots (optimizeProgram modules) of
+withCompiledModule opts emit roots modules = case lowerModules roots (optimizeProgram opts.optimizeMir modules) of
   Left err -> pure (Left ("linking failed: " <> show err))
   Right program -> do
     mod <- buildModule program

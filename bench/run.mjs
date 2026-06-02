@@ -18,8 +18,16 @@ import { resolve } from "node:path";
 
 const wasmPath = fileURLToPath(new URL("./output-wasm/Bench.Main/index.wasm", import.meta.url));
 const bytes = readFileSync(wasmPath);
-const { instance } = await WebAssembly.instantiate(bytes, {});
-const x = instance.exports;
+
+// A fresh instance (and so a fresh wasm-GC managed heap) per measurement, so the
+// benchmarks do not share memory. Otherwise a fast, allocation-light benchmark that
+// the adaptive timer runs very many times grows/loads the shared heap and skews a
+// later allocation-heavy one — which made the numbers unreliable (an isolated
+// benchmark measured very differently from the same one in the shared run).
+async function freshFn(name) {
+  const { instance } = await WebAssembly.instantiate(bytes, {});
+  return instance.exports[name];
+}
 
 // The baseline (set by `npm run base`), if any: a `name -> size -> ms` lookup that
 // snapshots overlay and compare against.
@@ -74,9 +82,9 @@ console.log(`wasm: ${bytes.length} bytes  (Bench.Main bundle)\n`);
 
 const results = [];
 for (const b of benches) {
-  const fn = x[b.name];
   const points = [];
   for (const size of b.sizes) {
+    const fn = await freshFn(b.name);
     const result = fn(size);
     const ns = nsPerOp(fn, size);
     points.push({ size, nsPerOp: Math.round(ns), ms: Number((ns / 1e6).toFixed(4)), result });

@@ -62,7 +62,15 @@ buildCtx modules =
   coreSelect i = case i.category of
     Just DictCtor -> Just (Tuple i.key i.rhs)
     Just _ | i.size <= inlineSizeCap -> Just (Tuple i.key i.rhs)
+    -- a trivial alias (`add = Data.Semiring.intAdd`, the residue of dictionary
+    -- elimination) inlines so a use `add(x, y)` becomes the intrinsic directly,
+    -- rather than calling a nullary CAF and applying its result
+    Nothing | isVarAlias i.rhs, not i.selfRef -> Just (Tuple i.key i.rhs)
     _ -> Nothing
+
+  isVarAlias = case _ of
+    M.Var _ -> true
+    _ -> false
 
   isCandidate i =
     i.category == Nothing

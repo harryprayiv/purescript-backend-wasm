@@ -24,15 +24,39 @@ import PureScript.CoreFn (Module)
 -- | Translate and optimize a whole program to MIR. Each module's name is kept; only
 -- | its top-level bindings are represented (lambda lifting may also prepend lifted
 -- | supercombinators).
-optimizeProgram :: Array Module -> Array M.Module
-optimizeProgram modules = map (DictElim.simplifyModule ctx) lifted
+-- |
+-- | Dictionary elimination is run to a whole-program fixed point: each round rebuilds
+-- | the inline context from the *current* program and simplifies, because eliminating
+-- | a dictionary turns a method binding into a fresh inlinable alias (`add =
+-- | Data.Semiring.add(semiringInt)` becomes `add = intAdd`, which the next round
+-- | inlines so a use `add(x, y)` is the intrinsic directly).
+-- | `dictElim` toggles the dictionary-elimination simplification (run to a fixed
+-- | point); lambda lifting always runs, since it is what makes deep tail recursion
+-- | run in constant stack (disabling it would overflow). Pass `false` to build an
+-- | unoptimized baseline.
+optimizeProgram :: Boolean -> Array Module -> Array M.Module
+optimizeProgram dictElim modules =
+  if dictElim then fixpoint maxRounds lifted else lifted
   where
   mir = map (\m -> { name: m.name, decls: map translBind m.decls } :: M.Module) modules
   lifted = map lambdaLiftModule mir
-  ctx = DictElim.buildCtx lifted
+
+  fixpoint :: Int -> Array M.Module -> Array M.Module
+  fixpoint n prog
+    | n <= 0 = prog
+    | otherwise =
+        let
+          prog' = map (DictElim.simplifyModule (DictElim.buildCtx prog)) prog
+        in
+          if prog' == prog then prog else fixpoint (n - 1) prog'
+
+-- | A generous ceiling on whole-program simplification rounds; dictionary
+-- | elimination converges in a few, this only bounds pathological cases.
+maxRounds :: Int
+maxRounds = 8
 
 -- | Optimize a single self-contained module (its own bindings only). A convenience
 -- | for callers with one module; cross-module dictionary elimination needs
 -- | `optimizeProgram` over all linked modules.
 optimizeModule :: Module -> M.Module
-optimizeModule m = fromMaybe { name: m.name, decls: [] } (Array.head (optimizeProgram [ m ]))
+optimizeModule m = fromMaybe { name: m.name, decls: [] } (Array.head (optimizeProgram true [ m ]))

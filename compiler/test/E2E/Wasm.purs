@@ -67,7 +67,7 @@ instantiateLinked :: Array (Array String) -> Array String -> Effect Instance
 instantiateLinked roots paths = do
   modules <- traverse decodeFixture paths
   -- mirror the production pipeline: run the whole-program middle-end before lowering
-  case lowerModules roots (optimizeProgram modules) of
+  case lowerModules roots (optimizeProgram true modules) of
     Left err -> throwException (error ("linking failed: " <> show err))
     Right program -> instantiateProgram program
 
