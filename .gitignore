@@ -9,3 +9,5 @@
 **/.DS_Store
 .psc-ide-port
 .spec-results
+.psci_modules
+.purs-repl
