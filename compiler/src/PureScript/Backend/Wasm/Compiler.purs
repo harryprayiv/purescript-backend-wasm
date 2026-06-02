@@ -18,7 +18,7 @@ import Data.Either (Either(..))
 import Effect (Effect)
 import PureScript.Backend.Wasm.Codegen (buildModule)
 import PureScript.Backend.Wasm.Lower (lowerModules)
-import PureScript.Backend.Wasm.MiddleEnd (optimizeModule)
+import PureScript.Backend.Wasm.MiddleEnd (optimizeProgram)
 import PureScript.CoreFn (Module, ModuleName)
 import PureScript.CoreFn.FromJSON (decodeModule)
 
@@ -48,7 +48,7 @@ withCompiledModule
   -> Array ModuleName
   -> Array Module
   -> Effect (Either String a)
-withCompiledModule opts emit roots modules = case lowerModules roots (map optimizeModule modules) of
+withCompiledModule opts emit roots modules = case lowerModules roots (optimizeProgram modules) of
   Left err -> pure (Left ("linking failed: " <> show err))
   Right program -> do
     mod <- buildModule program
