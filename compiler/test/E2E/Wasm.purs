@@ -22,6 +22,7 @@ import Data.ArrayBuffer.Types (Uint8Array)
 import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Exception (error, throwException)
+import Foreign.Object as Object
 import PureScript.Backend.Wasm.Codegen (buildModule)
 import Data.Traversable (traverse)
 import PureScript.Backend.Wasm.Lower.IR (Program)
@@ -67,7 +68,7 @@ instantiateLinked :: Array (Array String) -> Array String -> Effect Instance
 instantiateLinked roots paths = do
   modules <- traverse decodeFixture paths
   -- mirror the production pipeline: run the whole-program middle-end before lowering
-  case lowerModules true roots (optimizeProgram true modules) of
+  case lowerModules true Object.empty roots (optimizeProgram true modules) of
     Left err -> throwException (error ("linking failed: " <> show err))
     Right program -> instantiateProgram program
 

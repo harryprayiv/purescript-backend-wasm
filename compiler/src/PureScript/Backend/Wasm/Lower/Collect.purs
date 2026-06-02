@@ -24,6 +24,7 @@ import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Tuple (Tuple(..))
 import Foreign.Object (Object)
 import Foreign.Object as Object
+import PureScript.Backend.Wasm.Lower.IR (Rep(..))
 import PureScript.Backend.Wasm.Lower.Types (CtorInfo, peelAbs, qualifiedKey)
 import PureScript.Backend.Wasm.MiddleEnd.IR (Bind(..), Module)
 import PureScript.Backend.Wasm.MiddleEnd.IR as M
@@ -31,8 +32,8 @@ import PureScript.CoreFn (Binder(..), Literal(..), Meta(..), Qualified(..))
 
 -- | Collect the data constructors of every module, keyed by qualified name and
 -- | assigning each a 0-based tag within its (qualified) type.
-collectCtors :: Array Module -> Object CtorInfo
-collectCtors modules = (foldl perModule { counts: Object.empty, out: Object.empty } modules).out
+collectCtors :: Object (Array Rep) -> Array Module -> Object CtorInfo
+collectCtors fieldReps modules = (foldl perModule { counts: Object.empty, out: Object.empty } modules).out
   where
   perModule acc m = foldl (step m.name) acc (Array.mapMaybe ctorOf m.decls)
   ctorOf = case _ of
@@ -42,10 +43,16 @@ collectCtors modules = (foldl perModule { counts: Object.empty, out: Object.empt
   step moduleName { counts, out } { typeName, ctorName, arity } =
     let
       typeKey = qualifiedKey moduleName typeName
+      ctorKey = qualifiedKey moduleName ctorName
       tag = fromMaybe 0 (Object.lookup typeKey counts)
+      -- the externs-derived field reps, but only when they agree with the arity the
+      -- CoreFn reports — otherwise fall back to all-boxed (correct, just unoptimised)
+      reps = case Object.lookup ctorKey fieldReps of
+        Just rs | Array.length rs == arity -> rs
+        _ -> Array.replicate arity Boxed
     in
       { counts: Object.insert typeKey (tag + 1) counts
-      , out: Object.insert (qualifiedKey moduleName ctorName) { tag, arity } out
+      , out: Object.insert ctorKey { tag, arity, fieldReps: reps } out
       }
 
 -- | The constructors of every **enum-like** type — a type whose every constructor

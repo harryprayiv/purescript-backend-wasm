@@ -17,11 +17,16 @@ import Prelude
 import Data.Maybe (Maybe(..))
 import Data.String (joinWith)
 import Foreign.Object (Object)
-import PureScript.Backend.Wasm.Lower.IR (FuncName(..))
+import PureScript.Backend.Wasm.Lower.IR (FuncName(..), Rep)
 import PureScript.Backend.Wasm.MiddleEnd.IR as M
 import PureScript.CoreFn (Qualified(..))
 
-type CtorInfo = { tag :: Int, arity :: Int }
+-- | `fieldReps` is the wasm representation chosen for each field (in field order):
+-- | a concretely-`Int`/`Char`/`Number` field is stored unboxed (`I32`/`F64`) in the
+-- | constructor's struct, everything else `Boxed` (ADR 0013, front B). It is read
+-- | from the externs (`PureScript.Backend.Wasm.Externs`); without externs every
+-- | field defaults to `Boxed`, so `length fieldReps == arity` always holds.
+type CtorInfo = { tag :: Int, arity :: Int, fieldReps :: Array Rep }
 
 -- | Read-only facts about the whole program being lowered. All name-keyed
 -- | tables use the **module-qualified** name (`Module.ident`), so a reference can

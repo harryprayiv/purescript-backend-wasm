@@ -46,6 +46,7 @@ import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst)
+import Foreign.Object (Object)
 import Foreign.Object as Object
 import PureScript.Backend.Wasm.Intrinsics (foreignIntrinsic)
 import PureScript.Backend.Wasm.Lower.Collect (collectCtors, collectDictCtors, collectEnumCtors, collectFuncs, collectLabels, functionDecls, reachableFunctions)
@@ -473,13 +474,13 @@ lowerTopFunc info moduleName isRoot (Tuple ident expr) = do
 -- | `roots` modules are lowered (so a `Prelude` module's unused — and possibly
 -- | unsupported — instances are never visited); the roots' own functions are
 -- | exported, the rest are internal.
-lowerModules :: Boolean -> Array (Array String) -> Array Module -> Either LowerError Program
-lowerModules optimize roots modules = do
+lowerModules :: Boolean -> Object (Array Rep) -> Array (Array String) -> Array Module -> Either LowerError Program
+lowerModules optimize fieldReps roots modules = do
   let
     dictCtors = collectDictCtors modules
     info =
       { knownFuncs: collectFuncs dictCtors modules
-      , ctors: collectCtors modules
+      , ctors: collectCtors fieldReps modules
       , dictCtors
       , enumCtors: collectEnumCtors modules
       , labelIds: collectLabels modules
@@ -507,4 +508,4 @@ lowerModules optimize roots modules = do
 -- | Lower a single MIR module to a backend IR `Program`, exporting its top-level
 -- | functions (the single-module case of `lowerModules`).
 lowerModule :: Boolean -> Module -> Either LowerError Program
-lowerModule optimize m = lowerModules optimize [ m.name ] [ m ]
+lowerModule optimize m = lowerModules optimize Object.empty [ m.name ] [ m ]

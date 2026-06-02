@@ -6,13 +6,13 @@ import ArgParse.Basic (ArgParser)
 import ArgParse.Basic as ArgParser
 import Data.Array as Array
 import Data.Either (Either(..))
-import Data.Maybe (isNothing)
+import Data.Maybe (Maybe(..), isNothing)
 import Data.List.NonEmpty as NEL
 import Data.String (Pattern(..))
 import Data.String as Str
 import Data.Traversable (for)
 import Effect (Effect)
-import Effect.Aff (Aff, launchAff_, throwError)
+import Effect.Aff (Aff, launchAff_, throwError, try)
 import Effect.Class (liftEffect)
 import Effect.Class.Console (logShow)
 import Effect.Class.Console as Console
@@ -24,8 +24,11 @@ import Node.FS.Perms (permsAll)
 import Node.Path (FilePath)
 import Node.Path as Path
 import Node.Process as Process
+import Node.Cbor (decodeFirst)
 import PureScript.Backend.Wasm.Compiler (compileModules, parseModule)
 import PureScript.CoreFn (ModuleName, toModuleName)
+import PureScript.ExternsFile.Decoder.Class (decoder)
+import PureScript.ExternsFile.Decoder.Monad (runDecoder)
 import Unsafe.Coerce (unsafeCoerce)
 import Version as Version
 
@@ -131,6 +134,17 @@ buildCmd args = do
     case parseModule source of
       Left err -> throwError (error (printModname mod <> ": " <> err))
       Right m -> pure m
+  -- Each module's `externs.cbor` carries the top-level type information CoreFn
+  -- erased; it drives type-directed lowering (front B). A module without readable
+  -- or decodable externs is simply skipped — its constructors fall back to boxed.
+  externs <- map Array.catMaybes $ for mods \mod -> do
+    result <- try do
+      buf <- FS.readFile (Path.concat [ args.input, printModname mod, "externs.cbor" ])
+      fgn <- decodeFirst buf
+      pure (runDecoder decoder fgn)
+    pure case result of
+      Right (Right ef) -> Just ef
+      _ -> Nothing
   let roots = map entryRoot (Array.fromFoldable args.entryModules)
   let opts = { optimize: not args.debug, optimizeMir: not args.noOpt }
   -- one bundle per build: place it in a directory named after the (first) entry
@@ -143,7 +157,7 @@ buildCmd args = do
   -- self-contained wasm (imports resolved); `--text` disassembles that result.
   let appPath = Path.concat [ bundleDir, "app.wasm" ]
   let wasmPath = Path.concat [ bundleDir, "index.wasm" ]
-  liftEffect (compileModules opts roots modules) >>= case _ of
+  liftEffect (compileModules opts roots modules externs) >>= case _ of
     Left err -> throwError (error err)
     Right bytes -> do
       FS.writeFile appPath (unsafeCoerce bytes)

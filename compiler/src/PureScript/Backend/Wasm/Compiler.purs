@@ -17,10 +17,12 @@ import Data.ArrayBuffer.Types (Uint8Array)
 import Data.Either (Either(..))
 import Effect (Effect)
 import PureScript.Backend.Wasm.Codegen (buildModule)
+import PureScript.Backend.Wasm.Externs (ctorFieldReps)
 import PureScript.Backend.Wasm.Lower (lowerModules)
 import PureScript.Backend.Wasm.MiddleEnd (optimizeProgram)
 import PureScript.CoreFn (Module, ModuleName)
 import PureScript.CoreFn.FromJSON (decodeModule)
+import PureScript.ExternsFile (ExternsFile)
 
 -- | Parse a `corefn.json` source string into a `Module`, with failures rendered
 -- | as a message.
@@ -49,8 +51,9 @@ withCompiledModule
   -> (B.Module -> Effect a)
   -> Array ModuleName
   -> Array Module
+  -> Array ExternsFile
   -> Effect (Either String a)
-withCompiledModule opts emit roots modules = case lowerModules opts.optimizeMir roots (optimizeProgram opts.optimizeMir modules) of
+withCompiledModule opts emit roots modules externs = case lowerModules opts.optimizeMir (ctorFieldReps externs) roots (optimizeProgram opts.optimizeMir modules) of
   Left err -> pure (Left ("linking failed: " <> show err))
   Right program -> do
     mod <- buildModule program
@@ -65,10 +68,12 @@ withCompiledModule opts emit roots modules = case lowerModules opts.optimizeMir 
       B.dispose mod
       pure (Right result)
 
--- | Link the given modules into one wasm and return its binary bytes.
-compileModules :: CompileOptions -> Array ModuleName -> Array Module -> Effect (Either String Uint8Array)
+-- | Link the given modules into one wasm and return its binary bytes. `externs`
+-- | supplies type information for type-directed lowering (front B); pass `[]` to
+-- | build without it (everything stays boxed).
+compileModules :: CompileOptions -> Array ModuleName -> Array Module -> Array ExternsFile -> Effect (Either String Uint8Array)
 compileModules opts = withCompiledModule opts B.emitBinary
 
 -- | Link the given modules into one wasm and return its WAT (text) form.
-compileModulesText :: CompileOptions -> Array ModuleName -> Array Module -> Effect (Either String String)
+compileModulesText :: CompileOptions -> Array ModuleName -> Array Module -> Array ExternsFile -> Effect (Either String String)
 compileModulesText opts = withCompiledModule opts B.emitText

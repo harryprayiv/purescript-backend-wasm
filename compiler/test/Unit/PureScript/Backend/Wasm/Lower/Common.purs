@@ -183,7 +183,7 @@ lower :: Array CF.Bind -> Either LowerError Program
 lower decls = lowerModule true (translModule (moduleNamed [ "T" ] decls))
 
 lowerMany :: Array (Array String) -> Array CF.Module -> Either LowerError Program
-lowerMany roots modules = lowerModules true roots (map translModule modules)
+lowerMany roots modules = lowerModules true Object.empty roots (map translModule modules)
 
 -- --- IR inspection helpers --------------------------------------------------
 

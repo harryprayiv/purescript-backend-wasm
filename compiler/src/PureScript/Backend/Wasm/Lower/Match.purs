@@ -35,6 +35,7 @@ import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import PureScript.Backend.Wasm.Lower.IR (AnfExpr(..), Atom(..), Branch(..), LitBranch(..), LitPat(..), Rep(..), Rhs(..), Slot, VarRef(..))
+import PureScript.Backend.Wasm.Lower.Types (CtorInfo)
 import PureScript.Backend.Wasm.Intrinsics (Intrinsic(ArrayIndex, ArrayLength))
 import PureScript.Backend.Wasm.Lower.Monad (Lower, LowerError(..), fresh, throw)
 import PureScript.Backend.Wasm.MiddleEnd.IR as M
@@ -50,7 +51,7 @@ type MatchOps env =
   -- | the conditional built around that atom. (Concretely the caller's `lowerArg`.)
   , lowerCond :: env -> M.Expr -> (Atom -> Lower AnfExpr) -> Lower AnfExpr
   , bindLocal :: String -> Atom -> env -> env
-  , lookupCtor :: Qualified String -> Lower { tag :: Int, arity :: Int }
+  , lookupCtor :: Qualified String -> Lower CtorInfo
   -- | Whether a constructor belongs to an enum-like type (all-nullary): its values
   -- | are `i31ref` tags, matched by reading the tag rather than a `$ADT` switch.
   , isEnumCtor :: Qualified String -> Boolean
