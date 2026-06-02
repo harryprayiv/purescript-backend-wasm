@@ -14,7 +14,7 @@ import Prelude
 import Binaryen as B
 import Effect (Effect)
 import Effect.Exception (error, throwException)
-import PureScript.Backend.Wasm.IR (Rep(..))
+import PureScript.Backend.Wasm.Lower.IR (Rep(..))
 
 -- | The module's runtime heap types, plus the (non-null) reference value types
 -- | derived from them for `ref.cast` targets, field reads, and signatures.

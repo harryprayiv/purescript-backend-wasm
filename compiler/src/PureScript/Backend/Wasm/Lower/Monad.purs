@@ -17,7 +17,7 @@ import Control.Monad.Trans.Class (lift)
 import Data.Either (Either(..))
 import Data.Generic.Rep (class Generic)
 import Data.Show.Generic (genericShow)
-import PureScript.Backend.Wasm.IR (IRFunc, Slot(..))
+import PureScript.Backend.Wasm.Lower.IR (IRFunc, Slot(..))
 
 -- | The lowering supports a strict subset of CoreFn; anything outside it is
 -- | reported so the gap is explicit rather than silently mis-compiled.

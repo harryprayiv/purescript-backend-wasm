@@ -47,6 +47,7 @@ documentation/regeneration inputs, not compiled with the suite.
 | `Erased.corefn.json`  | `Erased.purs.sample`  | `Test.E2E.PreludeErased`      | **erased foreigns**: `Data.Unit.unit` (a nullary boxed constant) and `unsafeCoerce` (erased during lowering — `unsafeCoerce x` *is* `x`). Links `Data.Function` (`const`) / `Data.Semiring` (`add`) |
 | `Rec.corefn.json`     | `Rec.purs.sample`     | `Test.E2E.RecordUnsafe`       | **`Record.Unsafe`**: `unsafeGet` / `unsafeSet` (replace + insert) / `unsafeHas` / `unsafeDelete` — the runtime `String` key resolved via the emitted `internStr`, then the id-keyed `$rt.rec*` helpers. Foreigns are intrinsics, so only `Rec` is linked |
 | `RecInst.corefn.json` | `RecInst.purs.sample` | `Test.E2E.RecordInstances`    | **record instances**: real `Eq (Record r)` / `Show (Record r)` (`reflectSymbol` label + `unsafeGet` value over the row). Links `Data.{Eq,Show,Symbol,Semigroup,HeytingAlgebra}` / `Type.Proxy` |
+| `TailRec.corefn.json` | `TailRec.purs.sample` | `Test.E2E.TailCall`           | **tail-call elimination**: direct top-level tail recursion (`return_call`) and `where go = …` closure self-recursion (lambda-lifted to top level). Deep loops (1_000_000) run in constant stack. Links `Data.{Eq,Ring,Semiring}` |
 
 `Data.Semiring` / `Data.Ring` / `Data.Eq` / `Data.Ord` / `Data.Ordering` are
 **real `purs`-compiled Prelude output** (copied verbatim from a build's

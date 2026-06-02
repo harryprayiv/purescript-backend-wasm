@@ -1,7 +1,7 @@
 -- | The backend intermediate representation: a thin, A-normal-form layer
 -- | between CoreFn and Binaryen. See `docs/design-decisions/0003-intermediate-ir.md`
 -- | for the rationale.
-module PureScript.Backend.Wasm.IR where
+module PureScript.Backend.Wasm.Lower.IR where
 
 import Prelude
 

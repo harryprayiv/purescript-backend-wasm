@@ -1,4 +1,4 @@
--- | Lower the CoreFn AST to the backend IR (`PureScript.Backend.Wasm.IR`), under
+-- | Lower the CoreFn AST to the backend IR (`PureScript.Backend.Wasm.Lower.IR`), under
 -- | the uniform `eqref` convention (ADR 0004) and eval/apply (ADR 0003). What the
 -- | lowering does:
 -- |
@@ -48,13 +48,15 @@ import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst)
 import Foreign.Object as Object
 import PureScript.Backend.Wasm.Lower.Collect (collectCtors, collectDictCtors, collectFuncs, collectLabels, functionDecls, reachableFunctions)
+import PureScript.Backend.Wasm.Lower.Env (Env)
 import PureScript.Backend.Wasm.Lower.FreeVars (freeVars)
+import PureScript.Backend.Wasm.Lower.LambdaLift (lambdaLiftModule)
 import PureScript.Backend.Wasm.Lower.Match (MatchOps, compileMatch)
 import PureScript.Backend.Wasm.Lower.Monad (Lower, LowerError(..), fresh, throw)
 import PureScript.Backend.Wasm.Lower.Monad (LowerError(..)) as ReExport
-import PureScript.Backend.Wasm.Lower.Types (CtorInfo, Env, ModuleInfo, peelAbs, qualifiedFuncName, qualifiedKey, qualifiedKeyOf)
+import PureScript.Backend.Wasm.Lower.Types (CtorInfo, ModuleInfo, peelAbs, qualifiedFuncName, qualifiedKey, qualifiedKeyOf)
 import PureScript.Backend.Wasm.Intrinsics (foreignIntrinsic)
-import PureScript.Backend.Wasm.IR (Atom(..), AnfExpr(..), FuncName(..), IRFunc, Program, RecBind(..), Rep(..), Rhs(..), Slot(..), VarRef(..))
+import PureScript.Backend.Wasm.Lower.IR (Atom(..), AnfExpr(..), FuncName(..), IRFunc, Program, RecBind(..), Rep(..), Rhs(..), Slot(..), VarRef(..))
 import PureScript.CoreFn (Bind(..), Module, Qualified(..))
 import PureScript.CoreFn as C
 
@@ -459,8 +461,11 @@ lowerTopFunc info moduleName isRoot (Tuple ident expr) = do
 -- | unused — and possibly unsupported — instances are never visited); the roots'
 -- | own functions are exported, the rest are internal.
 lowerModules :: Array (Array String) -> Array Module -> Either LowerError Program
-lowerModules roots modules = do
+lowerModules roots modules0 = do
   let
+    -- Lift self-recursive local functions to top-level supercombinators first, so
+    -- their (tail) self-calls become direct calls eligible for `return_call`.
+    modules = map lambdaLiftModule modules0
     dictCtors = collectDictCtors modules
     info =
       { knownFuncs: collectFuncs dictCtors modules

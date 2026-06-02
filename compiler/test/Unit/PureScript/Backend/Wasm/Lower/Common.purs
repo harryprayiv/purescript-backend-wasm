@@ -11,7 +11,7 @@ import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), isJust, maybe)
 import Data.Tuple (Tuple(..))
 import Foreign.Object as Object
-import PureScript.Backend.Wasm.IR (Atom(..), AnfExpr(..), Branch(..), FuncName(..), IRFunc, LitBranch(..), LitPat, Program, RecBind(..), Rhs(..), Slot(..), VarRef(..))
+import PureScript.Backend.Wasm.Lower.IR (Atom(..), AnfExpr(..), Branch(..), FuncName(..), IRFunc, LitBranch(..), LitPat, Program, RecBind(..), Rhs(..), Slot(..), VarRef(..))
 import PureScript.Backend.Wasm.Lower (LowerError, lowerModule, lowerModules)
 import PureScript.CoreFn as CF
 

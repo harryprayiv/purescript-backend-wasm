@@ -11,11 +11,11 @@ import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
-import PureScript.Backend.Wasm.IR (Atom(..), FuncName(..), LitPat(..), RecBind(..), Rep(..), VarRef(..))
+import PureScript.Backend.Wasm.Lower.IR (Atom(..), FuncName(..), LitPat(..), RecBind(..), Rep(..), VarRef(..))
 import PureScript.CoreFn as CF
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
-import Test.Unit.PureScript.Backend.Wasm.Lower.Common (allRhs, ann, appE, blockAtoms, boolAlt, caseOf, closureCaptures, ctor, ctorAlt, def, dictCtorDecl, exportOf, exported, intAlt, isApply, isPrim, lam, letRec, letRec2, liftedFuncs, litInt, litObj, litStr, litSwitchOf, lower, lowerMany, lv, mkDataTags, newtypeCase, objUpdate, projLabelIds, qv, qvIn, recAlt, recordLabelIds, selfApply, strAlt, switchOf, switchScrutinees, hasSwitch, accessor, varBinder, arrayLengths, callKnownArities, callKnownNames, letRecOf, case2, ctorBinder, alt2, nullBinder, wildAlt, moduleNamed)
+import Test.Unit.PureScript.Backend.Wasm.Lower.Common (allRhs, ann, appE, blockAtoms, boolAlt, caseOf, closureCaptures, ctor, ctorAlt, def, dictCtorDecl, exportOf, exported, intAlt, isApply, isPrim, lam, letRec, letRec2, liftedFuncs, litInt, litObj, litStr, litSwitchOf, lower, lowerMany, lv, mkDataTags, newtypeCase, objUpdate, projLabelIds, qv, qvIn, recAlt, recordLabelIds, strAlt, switchOf, switchScrutinees, hasSwitch, accessor, varBinder, arrayLengths, callKnownArities, callKnownNames, letRecOf, case2, ctorBinder, alt2, nullBinder, wildAlt, moduleNamed)
 
 -- A function with a capturing lambda applied immediately:
 -- `f a b = (\y -> intAdd a y) b`. The lambda captures `a`.
@@ -96,14 +96,17 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
             Array.any isApply (allRhs fn.body) `shouldEqual` true
 
   describe "recursion" do
-    it "compiles a self-recursive let by recurring through the closure parameter" do
-      -- f x = let go m = go m in go x   (go refers to itself)
-      let f = def "f" (lam "x" (letRec "go" (lam "m" (appE (lv "go") (lv "m"))) (appE (lv "go") (lv "x"))))
+    it "lifts a self-recursive let to a top-level function that recurses by a direct call" do
+      -- f x = let go m = go m in go x
+      -- `go` is lambda-lifted to a top-level supercombinator whose self-call is a
+      -- direct `RCallKnown` (eligible for `return_call` TCE), not a closure `call_ref`.
+      let
+        f = def "f" (lam "x" (letRec "go" (lam "m" (appE (lv "go") (lv "m"))) (appE (lv "go") (lv "x"))))
+        unName (FuncName n) = n
+        selfRecursive fn = Array.elem (unName fn.name) (callKnownNames fn.body)
       case lower [ f ] of
         Left err -> fail (show err)
-        Right prog -> case Array.head (liftedFuncs prog) of
-          Nothing -> fail "expected a lifted code function for go"
-          Just code -> Array.any selfApply (allRhs code.body) `shouldEqual` true
+        Right prog -> Array.length (Array.filter selfRecursive prog.funcs) `shouldEqual` 1
 
     it "compiles a mutually-recursive let to a knot-tied LetRec group" do
       -- p x = let ev m = od m; od m = ev m in ev x

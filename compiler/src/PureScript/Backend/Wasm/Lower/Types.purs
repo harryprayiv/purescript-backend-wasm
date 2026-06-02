@@ -6,7 +6,6 @@
 module PureScript.Backend.Wasm.Lower.Types
   ( CtorInfo
   , ModuleInfo
-  , Env
   , qualifiedKey
   , qualifiedKeyOf
   , qualifiedFuncName
@@ -19,7 +18,7 @@ import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.String (joinWith)
 import Foreign.Object (Object)
-import PureScript.Backend.Wasm.IR (Atom, FuncName(..))
+import PureScript.Backend.Wasm.Lower.IR (FuncName(..))
 import PureScript.CoreFn (Qualified(..))
 import PureScript.CoreFn as C
 
@@ -36,18 +35,6 @@ type ModuleInfo =
   -- | Names of type-class dictionary constructors (decls tagged
   -- | `IsTypeClassConstructor`). They are newtype identities (`\x -> x`) wrapping
   -- | the dictionary record, so their application is erased (ADR 0007).
-  , dictCtors :: Object Unit
-  , labelIds :: Object Int
-  }
-
--- | The local environment plus the module facts. `locals` maps a CoreFn
--- | identifier to the `Atom` it denotes (a local slot, or — inside a lifted code
--- | function — a captured `EnvField`).
-type Env =
-  { locals :: Object Atom
-  , knownFuncs :: Object Int
-  , ctors :: Object CtorInfo
-  , moduleName :: Array String
   , dictCtors :: Object Unit
   , labelIds :: Object Int
   }

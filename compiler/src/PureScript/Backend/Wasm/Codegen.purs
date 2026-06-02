@@ -1,4 +1,4 @@
--- | Lower the backend IR (`PureScript.Backend.Wasm.IR`) to a Binaryen module, on
+-- | Lower the backend IR (`PureScript.Backend.Wasm.Lower.IR`) to a Binaryen module, on
 -- | the Wasm GC representation (ADR 0001) under the uniform `eqref` convention
 -- | (ADR 0004).
 -- |
@@ -36,7 +36,7 @@ import PureScript.Backend.Wasm.Codegen.Imports (importRuntime, internStrName, pr
 import PureScript.Backend.Wasm.Codegen.Prim (genPrim)
 import PureScript.Backend.Wasm.Codegen.RuntimeTypes (Ctx, buildRuntimeTypes, repType)
 import PureScript.Backend.Wasm.Codegen.Value (boxInt, genAtom, unboxBoolExpr, unboxIntAtom, unboxIntExpr, unboxNumExpr)
-import PureScript.Backend.Wasm.IR (Atom(..), AnfExpr(..), Branch(..), FuncName(..), IRFunc, LitBranch(..), LitPat(..), Program, RecBind(..), Rhs(..), Slot(..), VarRef(..))
+import PureScript.Backend.Wasm.Lower.IR (Atom(..), AnfExpr(..), Branch(..), FuncName(..), IRFunc, LitBranch(..), LitPat(..), Program, RecBind(..), Rhs(..), Slot(..), VarRef(..))
 
 -- | Build a Binaryen module from the IR `Program`: enable GC, build the
 -- | runtime type group, add every function (`eqref` calling convention; lifted
@@ -115,6 +115,14 @@ genBody ctx = go []
     Return atom -> seal statements =<< genAtom ctx atom
     Switch scrutAtom branches dflt -> seal statements =<< genSwitch ctx scrutAtom branches dflt
     LitSwitch scrutAtom branches dflt -> seal statements =<< genLitSwitch ctx scrutAtom branches dflt
+    -- A direct call whose result is immediately returned is a *tail* call: emit
+    -- `return_call` so a tail-recursive chain runs in constant stack (the frame is
+    -- replaced, not grown). Closure tail calls (`RApply`) are not covered here —
+    -- `return_call_ref` is not exposed by binaryen.js (see the TCE notes).
+    Let (Slot index) _ (RCallKnown name args) (Return (AVar (Local (Slot retIndex))))
+      | index == retIndex -> do
+          operands <- traverse (genAtom ctx) args
+          seal statements =<< B.returnCall ctx.mod (funcNameStr name) operands B.eqref
     Let (Slot index) _ rhs k -> do
       e <- genRhs ctx rhs
       stmt <- B.localSet ctx.mod index e

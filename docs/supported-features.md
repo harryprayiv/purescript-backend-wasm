@@ -13,6 +13,7 @@ not a design decision.
 - [Closures and Higher-order functions](#closures-and-higher-order-functions)
 - [Function application, partial and over](#function-application-partial-and-over)
 - [Recursive Let-bindings](#recursive-let-bindings)
+- [Tail-call elimination](#tail-call-elimination)
 - [Typeclasses (Not optimized!)](#typeclass-dictionaries-not-optimized)
 - [`Prelude` support](#prelude-support)
 - [Records](#records)
@@ -366,8 +367,13 @@ an unknown value: `f x y` becomes a chain of single-argument `call_ref`s.)
 
 Top-level mutual recursion needs nothing special — each call is a saturated,
 known, direct `call` (e.g. `isEvenN`/`isOddN` calling each other). A
-self-recursive local `let` recurs through its own closure parameter. The hard
-case is **local mutual recursion**, shown here:
+self-recursive local `let` / `where` function (the `where go acc = … go acc'`
+loop idiom) is **lambda-lifted to a top-level supercombinator** (`Lower.LambdaLift`):
+its captured free variables become leading parameters, references to it become
+that top-level name partially applied to the captures, and its saturated self-call
+is then a direct `RCallKnown`. That matters for tail-call elimination (below) — a
+closure self-call would not be eliminated. The hard case is **local mutual
+recursion**, shown here:
 
 ```purs
 data Nat = Z | S Nat
@@ -410,6 +416,26 @@ lifted to top-level code functions (`$code0`/`$code1`, omitted here). The body o
                    (ref.cast (ref $4) (struct.get $1 0 (ref.cast (ref $1) (local.get $2))))))
   (local.get $3))
 ```
+
+## Tail-call elimination
+
+A **direct call in tail position** — a `RCallKnown` whose result is returned
+immediately — is emitted as a wasm `return_call` (the `TailCall` feature) rather
+than a `call` followed by a return. The engine replaces the current frame instead
+of growing the stack, so a tail-recursive chain runs in **constant stack**:
+`countdown 1_000_000` returns instead of overflowing (~100k frames otherwise).
+This covers top-level self- and mutual tail recursion, and tail calls to any other
+top-level function.
+
+The common loop idiom — a `where`/`let`-bound self-recursive helper (`fib`'s `go`)
+— is a *closure* self-call (`call_ref`), which `return_call` does **not** reach
+(binaryen.js does not expose `return_call_ref`). The lambda-lifting pass above
+bridges that: hoisting `go` to a top-level supercombinator turns its self-call into
+a direct `RCallKnown`, which then becomes a `return_call` like any other. So
+`fib 1_000_000` (whose `go` loops ~10⁶ times) runs in constant stack.
+
+Not covered: tail calls to an *unknown* closure value (a function argument), which
+would need `return_call_ref`.
 
 ## Typeclass dictionaries (Not optimized!)
 

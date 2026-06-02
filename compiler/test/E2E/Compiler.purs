@@ -37,6 +37,7 @@ import Test.E2E.ExprEval as ExprEval
 import Test.E2E.PreludeErased as PreludeErased
 import Test.E2E.RecordUnsafe as RecordUnsafe
 import Test.E2E.RecordInstances as RecordInstances
+import Test.E2E.TailCall as TailCall
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
@@ -73,3 +74,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   PreludeErased.spec
   RecordUnsafe.spec
   RecordInstances.spec
+  TailCall.spec

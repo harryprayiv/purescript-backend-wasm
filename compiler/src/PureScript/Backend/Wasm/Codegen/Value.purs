@@ -27,7 +27,7 @@ import Data.String.CodePoints (toCodePointArray)
 import Data.Traversable (traverse)
 import Effect (Effect)
 import PureScript.Backend.Wasm.Codegen.RuntimeTypes (Ctx, repType)
-import PureScript.Backend.Wasm.IR (Atom(..), Slot(..), VarRef(..))
+import PureScript.Backend.Wasm.Lower.IR (Atom(..), Slot(..), VarRef(..))
 
 -- | The `(ref $Bytes)` byte array of a `String` atom (`ref.cast $Str` then
 -- | `struct.get 0`).

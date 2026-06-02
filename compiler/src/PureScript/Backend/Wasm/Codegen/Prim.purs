@@ -13,7 +13,7 @@ import Effect.Exception (error, throwException)
 import PureScript.Backend.Wasm.Codegen.Imports (arrayApplyHelperName, arrayBindHelperName, arrayConcatHelperName, arrayEqHelperName, arrayMapHelperName, arrayOrdHelperName, intDegreeHelperName, intDivHelperName, intModHelperName, intercalateHelperName, internStrName, projHelperName, recDeleteHelperName, recHasHelperName, recSetHelperName, showArrayHelperName, showCharHelperName, showIntHelperName, showNumberHelperName, showStringHelperName, strCmpHelperName, strConcatHelperName, strEqHelperName)
 import PureScript.Backend.Wasm.Codegen.RuntimeTypes (Ctx)
 import PureScript.Backend.Wasm.Codegen.Value (boxInt, boxNum, genAtom, strBytes, unboxBoolExpr, unboxIntAtom, unboxNumExpr)
-import PureScript.Backend.Wasm.IR (Atom)
+import PureScript.Backend.Wasm.Lower.IR (Atom)
 import PureScript.Backend.Wasm.Intrinsics (Intrinsic(..))
 
 genPrim :: Ctx -> Intrinsic -> Array Atom -> Effect B.Expression

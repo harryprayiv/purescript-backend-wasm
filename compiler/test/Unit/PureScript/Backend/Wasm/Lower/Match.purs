@@ -11,7 +11,7 @@ import Prelude
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
-import PureScript.Backend.Wasm.IR (LitPat(..))
+import PureScript.Backend.Wasm.Lower.IR (LitPat(..))
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Unit.PureScript.Backend.Wasm.Lower.Common
