@@ -93,6 +93,13 @@ simplifyExpr ctx = fixpoint maxPasses
     -- applied function (e.g. `ordIntImpl(LT, EQ, GT)`) saturates once its remaining
     -- arguments arrive and is recognised as the intrinsic rather than a closure
     M.App (M.App f as) bs -> Just (M.App f (as <> bs))
+    -- split a multi-binding non-recursive let into nested single-binding lets
+    -- (order preserved, so a later binding still sees the earlier ones), so the
+    -- single-binding inline rule below can reach each one — e.g. `negate = let
+    -- sub = intSub; zero = 0 in \a -> sub(zero, a)` collapses to `\a -> intSub(0, a)`
+    M.Let bs body
+      | Array.length bs > 1
+      , Array.all isNonRec bs -> Just (Array.foldr (\b acc -> M.Let [ b ] acc) body bs)
     -- inline a single-use (or dead) non-recursive let binding: this lets the
     -- partial application a dictionary method resolves to (`let cmp =
     -- ordIntImpl(LT, EQ, GT) in … cmp(x, y) …`) flow into its one application and
@@ -198,6 +205,11 @@ matchLit = case _, _ of
 
 lookupField :: String -> Array (Tuple String M.Expr) -> Maybe M.Expr
 lookupField l = Array.findMap \(Tuple k v) -> if k == l then Just v else Nothing
+
+isNonRec :: M.Bind -> Boolean
+isNonRec = case _ of
+  M.NonRec _ _ _ -> true
+  M.Rec _ -> false
 
 -- | Count references to a local name `x`. Inner binders that shadow `x` are not
 -- | discounted, so this may *over*-count — which only ever suppresses an inline,

@@ -44,210 +44,80 @@ Key architectural decisions are recorded as ADRs under
 
 ## Example
 
+A small expression-language evaluator — an ADT, pattern matching, recursion, and
+`Int` arithmetic (`example/src/Main.purs`):
+
 ```purescript
-module Example.Fib where
+module Example.Main where
 
 import Prelude
 
-fib :: Int -> Int
-fib n' =
-  let
-    decr = (_ - 1)
-    go a b k =
-      if k == 1 then a
-      else go b (a + b) (decr k)
-  in
-    go 1 1 n'
+data Expr
+  = Add Expr Expr
+  | Mul Expr Expr
+  | Neg Expr
+  | Lit Int
+
+eval :: Expr -> Int
+eval = case _ of
+  Add x y -> eval x + eval y
+  Mul x y -> eval x * eval y
+  Neg x   -> negate (eval x)
+  Lit n   -> n
 ```
 
-compiles to the wasm (wat format) below. The dictionary plumbing that the real
-`Prelude` `(+)` / `(-)` / `(==)` pull in is elided to keep the focus on `fib`
-itself; only the closure-converted `fib` and its export wrapper are shown.
+`eval` compiles to the wat below. The `Prelude` bundle (the `+` / `*` / `negate`
+that lower to the `i32.add` / `i32.mul` / `i32.sub` intrinsics, plus the runtime
+helpers) and the host `i32` export shim are elided to keep the focus on `eval`;
+identifiers are given readable names and the output is lightly reformatted.
+
+Note what is **not** there: no dictionary closures, no `call_ref`, and no
+per-operation `Int` boxing. Arithmetic runs as unboxed `i32`, the four
+constructors are dispatched by a direct tag test, and recursion is a direct
+`call $eval`. (The middle-end eliminates the type-class dictionaries and unboxes
+the arithmetic; see the [`Int`/`Number` unboxing](docs/design-decisions/0013-int-number-unboxing.md)
+ADR.)
 
 ```wat
 (module
- (type $0 (array (mut eqref)))
- (type $1 (struct (field funcref) (field (ref $0))))
- (type $2 (func (param (ref $1) eqref) (result eqref)))
- (type $3 (struct (field i32)))
- (type $4 (array i32))
- (type $5 (struct (field (ref $4)) (field (ref $0))))
- (type $6 (func (result eqref)))
- (type $7 (func (result i32)))
- (type $8 (func (param (ref $5) i32) (result eqref)))
- (type $9 (func (result (ref $5))))
- (type $10 (func (param i32) (result i32)))
- (elem declare func $Example.Fib.$code9 $Example.Fib.$code10 $Example.Fib.$code11 $Example.Fib.$code12)
- (export "fib" (func $Example.Fib.fib$export))
+ ;; Types (names added for readability; the optimiser emits numeric ids):
+ ;;   $Expr = (struct (field i32) (field (ref $vals)))  -- an ADT: ctor tag + field array
+ ;;   $vals = (array (mut eqref))                         -- the field array
+ ;;   $Int  = (struct (field i32))                        -- a boxed Int
+ (export "eval" (func $eval$export))
 
- ;; --- elided: Prelude dictionary plumbing for (+) / (-) / (==) ---
- ;;   $rt.proj (runtime label search), Data.Semiring.semiringInt,
- ;;   Data.{Eq,Ring,Semiring}.$code*, and the Example.Fib.{sub,eq,add}
- ;;   dictionary-projection thunks (plus their export wrappers).
+ ;; --- elided: the Prelude bundle (intAdd / intMul / intSub intrinsics, the
+ ;;     negate helper, runtime helpers) and the host i32 export shim ---
 
- (func $Example.Fib.$code9 (type $2) (param $0 (ref $1)) (param $1 eqref) (result eqref)
-  (call_ref $2
-   (local.tee $0
-    (ref.cast (ref $1)
-     (call_ref $2
-      (local.tee $0
-       (ref.cast (ref $1)
-        (call $Example.Fib.sub)))
-      (local.get $1)
-      (ref.cast (ref $2)
-       (struct.get $1 0
-        (local.get $0))))))
-   (struct.new $3
-    (i32.const 1))
-   (ref.cast (ref $2)
-    (struct.get $1 0
-     (local.get $0)))))
- (func $Example.Fib.$code12 (type $2) (param $0 (ref $1)) (param $1 eqref) (result eqref)
-  (local $2 (ref $1))
-  (local $3 eqref)
+ (func $eval (param $0 eqref) (result eqref)
+  (local $1 (ref $Expr)) (local $2 eqref) (local $3 (ref $vals))
   (if (result eqref)
-   (i32.eq
-    (i31.get_s
-     (ref.cast i31ref
-      (call_ref $2
-       (local.tee $2
-        (ref.cast (ref $1)
-         (call_ref $2
-          (local.tee $2
-           (ref.cast (ref $1)
-            (call $Example.Fib.eq)))
-          (local.get $1)
-          (ref.cast (ref $2)
-           (struct.get $1 0
-            (local.get $2))))))
-       (struct.new $3
-        (i32.const 1))
-       (ref.cast (ref $2)
-        (struct.get $1 0
-         (local.get $2))))))
-    (i32.const 1))
+   (struct.get $Expr 0 (local.tee $1 (ref.cast (ref $Expr) (local.get $0))))     ;; read the ctor tag
    (then
-    (array.get $0
-     (struct.get $1 1
-      (local.get $0))
-     (i32.const 0)))
-   (else
-    (local.set $3
-     (call_ref $2
-      (local.tee $2
-       (ref.cast (ref $1)
-        (call_ref $2
-         (local.tee $2
-          (ref.cast (ref $1)
-           (call $Example.Fib.add)))
-         (array.get $0
-          (struct.get $1 1
-           (local.get $0))
-          (i32.const 0))
-         (ref.cast (ref $2)
-          (struct.get $1 0
-           (local.get $2))))))
-      (array.get $0
-       (struct.get $1 1
-        (local.get $0))
-       (i32.const 2))
-      (ref.cast (ref $2)
-       (struct.get $1 0
-        (local.get $2)))))
-    (local.set $1
-     (call_ref $2
-      (local.tee $2
-       (ref.cast (ref $1)
-        (array.get $0
-         (struct.get $1 1
-          (local.get $0))
-         (i32.const 3))))
-      (local.get $1)
-      (ref.cast (ref $2)
-       (struct.get $1 0
-        (local.get $2)))))
-    (call_ref $2
-     (local.tee $0
-      (ref.cast (ref $1)
-       (call_ref $2
-        (local.tee $0
-         (ref.cast (ref $1)
-          (call_ref $2
-           (local.tee $2
-            (ref.cast (ref $1)
-             (array.get $0
-              (struct.get $1 1
-               (local.get $0))
-              (i32.const 1))))
-           (array.get $0
-            (struct.get $1 1
-             (local.get $0))
-            (i32.const 2))
-           (ref.cast (ref $2)
-            (struct.get $1 0
-             (local.get $2))))))
-        (local.get $3)
-        (ref.cast (ref $2)
-         (struct.get $1 0
-          (local.get $0))))))
-     (local.get $1)
-     (ref.cast (ref $2)
-      (struct.get $1 0
-       (local.get $0)))))))
- (func $Example.Fib.$code11 (type $2) (param $0 (ref $1)) (param $1 eqref) (result eqref)
-  (struct.new $1
-   (ref.func $Example.Fib.$code12)
-   (array.new_fixed $0 4
-    (array.get $0
-     (struct.get $1 1
-      (local.get $0))
-     (i32.const 0))
-    (array.get $0
-     (struct.get $1 1
-      (local.get $0))
-     (i32.const 1))
-    (local.get $1)
-    (array.get $0
-     (struct.get $1 1
-      (local.get $0))
-     (i32.const 2)))))
- (func $Example.Fib.$code10 (type $2) (param $0 (ref $1)) (param $1 eqref) (result eqref)
-  (struct.new $1
-   (ref.func $Example.Fib.$code11)
-   (array.new_fixed $0 3
-    (local.get $1)
-    (local.get $0)
-    (array.get $0
-     (struct.get $1 1
-      (local.get $0))
-     (i32.const 0)))))
- (func $Example.Fib.fib$export (type $10) (param $0 i32) (result i32)
-  (local $1 (ref $1))
-  (struct.get $3 0
-   (ref.cast (ref $3)
-    (call_ref $2
-     (local.tee $1
-      (ref.cast (ref $1)
-       (call_ref $2
-        (local.tee $1
-         (ref.cast (ref $1)
-          (call $Example.Fib.$code10
-           (struct.new $1
-            (ref.func $Example.Fib.$code10)
-            (array.new_fixed $0 1
-             (struct.new $1
-              (ref.func $Example.Fib.$code9)
-              (array.new_fixed $0 0))))
-           (struct.new $3
-            (i32.const 1)))))
-        (struct.new $3
-         (i32.const 1))
-        (ref.cast (ref $2)
-         (struct.get $1 0
-          (local.get $1))))))
-     (struct.new $3
-      (local.get $0))
-     (ref.cast (ref $2)
-      (struct.get $1 0
-       (local.get $1))))))))
+    (if (result eqref) (i32.eq (struct.get $Expr 0 (local.get $1)) (i32.const 1)) ;; tag 1 = Mul?
+     (then  ;; Mul x y  ->  eval x * eval y
+      (local.set $3 (struct.get $Expr 1 (local.get $1)))                          ;; the field array
+      (local.set $0 (array.get $vals (local.get $3) (i32.const 1)))               ;; y
+      (local.set $2 (call $eval (array.get $vals (local.get $3) (i32.const 0))))  ;; eval x
+      (local.set $0 (call $eval (local.get $0)))                                  ;; eval y
+      (struct.new $Int (i32.mul                                                   ;; unboxed i32 multiply
+       (struct.get $Int 0 (ref.cast (ref $Int) (local.get $2)))
+       (struct.get $Int 0 (ref.cast (ref $Int) (local.get $0))))))
+     (else
+      (if (result eqref) (i32.eq (struct.get $Expr 0 (local.get $1)) (i32.const 2)) ;; tag 2 = Neg?
+       (then  ;; Neg x  ->  negate (eval x)
+        (struct.new $Int (call $negate
+         (call $eval (array.get $vals (struct.get $Expr 1 (local.get $1)) (i32.const 0))))))
+       (else
+        (if (result eqref) (i32.eq (struct.get $Expr 0 (local.get $1)) (i32.const 3)) ;; tag 3 = Lit?
+         (then  ;; Lit n  ->  n  (the field is already a boxed Int)
+          (array.get $vals (struct.get $Expr 1 (local.get $1)) (i32.const 0)))
+         (else (unreachable))))))))
+   (else  ;; tag 0 = Add x y  ->  eval x + eval y
+    (local.set $0 (array.get $vals (struct.get $Expr 1 (local.get $1)) (i32.const 1)))            ;; y
+    (local.set $2 (call $eval (array.get $vals (struct.get $Expr 1 (local.get $1)) (i32.const 0)))) ;; eval x
+    (local.set $0 (call $eval (local.get $0)))                                                    ;; eval y
+    (struct.new $Int (i32.add                                                                     ;; unboxed i32 add
+     (struct.get $Int 0 (ref.cast (ref $Int) (local.get $2)))
+     (struct.get $Int 0 (ref.cast (ref $Int) (local.get $0)))))))))
 ```

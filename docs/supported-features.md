@@ -14,76 +14,86 @@ not a design decision.
 - [Function application, partial and over](#function-application-partial-and-over)
 - [Recursive Let-bindings](#recursive-let-bindings)
 - [Tail-call elimination](#tail-call-elimination)
-- [Typeclasses (Not optimized!)](#typeclass-dictionaries-not-optimized)
-- [`Prelude` support](#prelude-support)
+- [Typeclasses](#typeclass-dictionaries)
+- [Linking and reachability](#linking-and-reachability)
 - [Records](#records)
 - [Host Interface](#host-interface)
 
 ## Compilation model (how to read the WAT)
 
-Per ADR 0001 / 0004, every runtime value is a **boxed `eqref`**, and internal
-functions take and return `eqref`. The recurring shapes in the WAT:
+The uniform value representation is a **boxed `eqref`** (ADR 0001 / 0004): any
+value *can* be held as an `eqref`, which is what makes parametric polymorphism and
+the heap shapes below work. On top of that, two middle-end passes remove most of
+the boxing in practice, so the emitted code is far leaner than a uniformly-boxed
+model:
 
-- `(struct (field i32))` — a boxed `Int`. `struct.new` boxes, `struct.get 0`
-  (after a `ref.cast`) unboxes.
-- `(struct (field i32) (field (ref …)))` — an ADT (`tag` + a field array).
+- **Dictionary elimination** (ADR 0005) inlines the type-class plumbing away, so
+  `+` / `<` / `show` lower to direct calls to their `Int` / `String` / …
+  implementations instead of method lookups
+  through a dictionary closure.
+- **Representation analysis** (ADR 0013) gives each binding, parameter, and result
+  a concrete representation — a raw **`i32`** (`Int` / `Char`), a raw **`f64`**
+  (`Number`), an **`i31ref`** (`Boolean`, and all-nullary enums such as
+  `Ordering`), or the boxed **`eqref`** — and boxes **only at representation
+  boundaries** (a value stored into an ADT/record field, a polymorphic call, a
+  closure capture, the host ABI). Monomorphic arithmetic and loops therefore run
+  allocation-free.
+
+The recurring heap shapes — used *at* those boundaries — in the WAT:
+
+- `(struct (field i32))` — a boxed `Int` (`$Int`). `struct.new` boxes, `struct.get 0`
+  (after a `ref.cast`) unboxes; `Number` is the analogous `(struct (field f64))`.
+- `(struct (field i32) (field (ref …)))` — an ADT (`tag` + a field array). An enum-like ADT (i.e. **all constructors are nullary**) is instead an allocation-free `i31ref`
+  tag, and a nullary constructor of a mixed type (`Nil`, `Nothing`) is allocated
+  once and shared rather than rebuilt per use.
 - `(struct (field funcref) (field (ref …)))` — a closure (code pointer + a
   captured-environment array).
 - Each exported function has a thin **`…$export` wrapper** with the host-facing
-  `i32` signature: it boxes the `i32` arguments, calls the internal `eqref`
-  function, and unboxes the result.
+  `i32` signature; when the internal function already takes/returns `i32` (the
+  common case after unboxing) the wrapper is a trivial pass-through.
 
-Binaryen prunes unused types, so a module that only uses `Int` shows just the
-boxed-`Int` struct.
+Binaryen prunes unused types, so a small module shows only the shapes it needs.
 
 ## Top-level functions
 
 ```purs
-foreign import intAdd :: Int -> Int -> Int
+import Prelude
 
 addN :: Int -> Int -> Int
-addN x y = intAdd x y
+addN x y = x + y
 
 five :: Int
 five = addN 2 3
 ```
 
-`intAdd` is a module-local foreign primitive mapped to the `i32.add` intrinsic
-(ADR 0002); `intMul`/`intSub` map to `i32.mul`/`i32.sub` the same way. `Int`
-literals box an `i32.const`. `five` is a saturated call to `addN`, which lowers
-to a direct `call`. Full emitted WAT:
+The `+` operator is defined in `Prelude` as a method of the **`Semiring`** type
+class. Most of the type classes `Prelude` provides are given built-in compiler
+support that inlines their methods down to machine **intrinsics**, and `Semiring`
+is no exception — so `addN` compiles simply to `i32.add` (`*` and `-` reduce to
+`i32.mul` / `i32.sub` the same way, through `Semiring` / `Ring`). On top of that the
+representation analysis (ADR 0013) keeps `addN`'s parameters and result, and the
+`Int` literals in `five`, as **raw `i32`** — so there is no `struct.new` / `ref.cast`
+boxing anywhere — and `five` is a saturated direct (here tail-) `call`, its host
+export wrapper a trivial pass-through. See [Typeclasses](#typeclass-dictionaries)
+for how type-class methods are compiled. Emitted WAT:
 
 ```wat
 (module
- (type $0 (struct (field i32)))
- (type $1 (func (param eqref eqref) (result eqref)))
- (type $2 (func (result eqref)))
- (type $3 (func (param i32 i32) (result i32)))
- (type $4 (func (result i32)))
+ (type $0 (func (param i32 i32) (result i32)))
+ (type $1 (func (result i32)))
  (export "addN" (func $M.addN$export))
  (export "five" (func $M.five$export))
- (func $M.addN (type $1) (param $0 eqref) (param $1 eqref) (result eqref)
-  (local $2 eqref)
-  (local.set $2
-   (struct.new $0                                  ;; box the i32 result
-    (i32.add
-     (struct.get $0 0 (ref.cast (ref $0) (local.get $0)))   ;; unbox x
-     (struct.get $0 0 (ref.cast (ref $0) (local.get $1))))))  ;; unbox y
+ (func $M.addN (type $0) (param $0 i32) (param $1 i32) (result i32)
+  (local $2 i32)
+  (local.set $2 (i32.add (local.get $0) (local.get $1)))   ;; raw i32 add — no boxing
   (local.get $2))
- (func $M.five (type $2) (result eqref)
-  (local $0 eqref)
-  (local.set $0
-   (call $M.addN
-    (struct.new $0 (i32.const 2))                  ;; box 2
-    (struct.new $0 (i32.const 3))))                ;; box 3
-  (local.get $0))
- ;; host-facing i32 wrappers
- (func $M.addN$export (type $3) (param $0 i32) (param $1 i32) (result i32)
-  (struct.get $0 0
-   (ref.cast (ref $0)
-    (call $M.addN (struct.new $0 (local.get $0)) (struct.new $0 (local.get $1))))))
- (func $M.five$export (type $4) (result i32)
-  (struct.get $0 0 (ref.cast (ref $0) (call $M.five)))))
+ (func $M.five (type $1) (result i32)
+  (return_call $M.addN (i32.const 2) (i32.const 3)))        ;; direct (tail) call, raw i32 literals
+ ;; host-facing i32 wrappers — trivial now that the callees are already i32
+ (func $M.addN$export (type $0) (param $0 i32) (param $1 i32) (result i32)
+  (call $M.addN (local.get $0) (local.get $1)))
+ (func $M.five$export (type $1) (result i32)
+  (call $M.five)))
 ```
 
 So the host calls `five()` → `5`, `addN(2, 3)` → `5`.
@@ -102,10 +112,15 @@ someOrElse :: Int -> Int
 someOrElse n = orElse (Some n) 0
 ```
 
-A value of an ADT is `(struct tag fields)`: an `i32` **constructor tag**
-(assigned by declaration order — `None` = 0, `Some` = 1) plus a boxed-`eqref`
-**field array**. Construction is `struct.new` over an `array.new_fixed` of the
-fields. A `case` lowers to a **decision tree** (`Lower.Match`). The example below
+A value of an ADT with at least one field-carrying constructor is `(struct tag
+fields)`: an `i32` **constructor tag** (assigned by declaration order — `None` = 0,
+`Some` = 1) plus a boxed-`eqref` **field array**. Construction is `struct.new` over
+an `array.new_fixed` of the fields. Two cases avoid this heap struct (ADR 0013): an
+ADT whose constructors are **all nullary** (e.g. `Ordering`, like `Boolean`) is
+just its tag as an allocation-free `i31ref`, matched by reading the tag with
+`i31.get_s`; and a **nullary constructor of a mixed type** (`None`, `Nil`) is
+allocated once and shared, not rebuilt at each use. A `case` lowers to a **decision
+tree** (`Lower.Match`). The example below
 is the simplest shape — one scrutinee, flat constructor alternatives — which
 becomes an `if`/`else` chain that compares the scrutinee's tag against each
 constructor; a constructor binder reads the matched fields out of the array with
@@ -419,25 +434,41 @@ lifted to top-level code functions (`$code0`/`$code1`, omitted here). The body o
 
 ## Tail-call elimination
 
+```purs
+import Prelude
+
+-- iterative Fibonacci: `go` is a tail-recursive accumulator loop
+fib :: Int -> Int
+fib n =
+  let
+    go a b k =
+      if k == 1 then a
+      else go b (a + b) (k - 1)
+  in
+    go 1 1 n
+```
+
 A **direct call in tail position** — a `RCallKnown` whose result is returned
 immediately — is emitted as a wasm `return_call` (the `TailCall` feature) rather
 than a `call` followed by a return. The engine replaces the current frame instead
 of growing the stack, so a tail-recursive chain runs in **constant stack**:
-`countdown 1_000_000` returns instead of overflowing (~100k frames otherwise).
-This covers top-level self- and mutual tail recursion, and tail calls to any other
-top-level function.
+`fib 1_000_000` returns instead of overflowing (~10⁶ frames otherwise). This covers
+top-level self- and mutual tail recursion, and tail calls to any other top-level
+function.
 
-The common loop idiom — a `where`/`let`-bound self-recursive helper (`fib`'s `go`)
-— is a *closure* self-call (`call_ref`), which `return_call` does **not** reach
-(binaryen.js does not expose `return_call_ref`). The lambda-lifting pass above
+The catch is that `go` above is a `where`/`let`-bound self-recursive helper — a
+*closure* self-call, which would be a `call_ref` that `return_call` does **not**
+reach (binaryen.js does not expose `return_call_ref`). The lambda-lifting pass
 bridges that: hoisting `go` to a top-level supercombinator turns its self-call into
-a direct `RCallKnown`, which then becomes a `return_call` like any other. So
-`fib 1_000_000` (whose `go` loops ~10⁶ times) runs in constant stack.
+a direct `RCallKnown`, so it becomes an ordinary `return_call` — and since the
+representation analysis keeps `a`/`b`/`k` as raw `i32`, the tail reads
+`(return_call $go b (i32.add a b) (i32.sub k 1))`. `fib`'s `go` therefore loops
+~10⁶ times in constant stack.
 
 Not covered: tail calls to an *unknown* closure value (a function argument), which
 would need `return_call_ref`.
 
-## Typeclass dictionaries (Not optimized!)
+## Typeclass dictionaries
 
 ```purs
 class Addable a where
@@ -454,6 +485,14 @@ double x = plus x x
 doubleInt :: Int -> Int
 doubleInt n = double n
 ```
+
+**Dictionary elimination (ADR 0005) removes the dictionary wherever the instance
+is statically known — the common case.** Here `doubleInt` carries no dictionary at
+all: it lowers to a direct `intAdd(n, n)` (via the inlined Int-specialisation
+`double1 = \x -> intAdd(x, x)`), with no `$Rec` allocation, no label search, and
+no `plus` closure. The representation described below is what *remains* for
+genuinely **polymorphic, dictionary-passing** code — `double` called at a type not
+known at compile time — and is also how records are represented in general.
 
 In CoreFn a class is a **newtype dictionary constructor** wrapping a record of
 its methods, an instance is a top-level value (a record), and a method is an
@@ -503,62 +542,51 @@ searches the label-id array and returns the parallel value:
       (unreachable))))                                  ;; label absent — impossible by construction
 ```
 
-So `doubleInt(n)` → `2n`, dispatching `plus` through the dictionary. The same
-label search serves **superclass access**: a superclass dictionary is just
+When the dictionary genuinely must be passed (polymorphic code), `plus` is
+dispatched through this label search. The same search serves **superclass
+access**: a superclass dictionary is just
 another (thunked) field `<SuperclassName><n>` (e.g. `Base0`), read by the same
 `$rt.proj` and then applied — no class/type information needed, so arbitrarily
 deep hierarchies work. (Positional/tuple dictionaries would be faster but need
 type information; deferred to a later optimization — ADR 0007.)
 
-### Performance note: dictionaries are rebuilt on every use (no memoization)
+### Dictionary elimination (ADR 0005, implemented)
 
-`purs` already hoists an instance-specialized method to a module-level binding —
-e.g. `doubleInt n = double n` becomes `double1 = double addableInt` plus
-`doubleInt = \n -> double1 n`, so the specialization is named once rather than
-repeated at each call site. We **preserve** that structure.
+The middle end runs a whole-program simplifier that inlines the type-class
+plumbing — the dictionary constructors, the method accessors, the instance
+records, and the derived helpers (`lessThan`, `negate`, …) — to a fixed point,
+collapsing `accessor(instance)` down to the underlying implementation. Wherever an
+instance is statically known, this removes the dictionary value, its `$Rec`
+allocation, and the `$rt.proj` label search **entirely**: `plus addableInt x y`
+becomes `intAdd(x, y)`, and `doubleInt` above lowers to a direct `intAdd(n, n)`.
+Combined with representation analysis (ADR 0013) the operands stay raw `i32`, so
+the dispatch hot path that this section's machinery describes simply does not run
+for monomorphic code. The bench suite (`bench/`) shows the effect — arithmetic and
+comparison kernels run several times faster than the equivalent optimized JS.
 
-What we do **not** yet do is *memoize* it. A top-level value binding (a CAF — an
-instance dictionary like `addableInt`, or a specialized method like `double1`)
-compiles to a **nullary function**, and every reference to it is a fresh `call`.
-So each `doubleInt(n)` re-runs `double1()` → `addableInt()`, which **re-allocates
-the dictionary `$Rec` struct and its arrays and re-does the label projection**
-every time. The JS backend's `const double1 = double(addableInt)` instead
-evaluates once at module load and caches the value.
+What remains: a *genuinely* polymorphic dictionary (passed at a type unknown at
+compile time) still uses the runtime representation above, and such a dictionary
+CAF is currently a nullary function re-evaluated per reference rather than memoized
+to a module global (the evaluate-once sharing of **ADR 0006**, still proposed).
+That is now a narrow case — most dictionaries never survive elimination.
 
-This is a real penalty on the dispatch hot path (allocation + search per call).
-The fix is **ADR 0006** (compile acyclic CAFs to module globals initialized once),
-which would give the same evaluate-once sharing as the JS `const`. Eliminating
-the dictionary and projection altogether — `add dict x y → intAdd x y` — is the
-separate, further optimization of **ADR 0005** (dictionary elimination). Both are
-Proposed, not yet implemented.
+## Linking and reachability
 
-## `Prelude` Support
+A program spans more than one module — the user's code plus the `Prelude` modules
+it uses. Two pieces of the build (ADR 0009) make linking them into one wasm
+practical:
 
-```purs
-import Prelude
-
-poly :: Int -> Int -> Int
-poly a b = a * a + b * b - a
-
-cmp :: Int -> Int -> Int
-cmp a b = if a == b then 0 else if a < b then -1 else 1
-```
-
-purs desugars operations such as `+` / `*` / `-` on `Int` to the `Semiring` / `Ring` method accessors applied to the `semiringInt` / `ringInt` instance dictionaries; those dictionaries are records whose `add` / `mul` / `sub` fields are the `intAdd` / `intMul` / `intSub` **foreign** functions, which the intrinsics table maps to `i32.add` / `i32.mul` / `i32.sub`. 
-So the existing dictionary support (above) plus those three intrinsics is all it takes — `poly` links the user module with `Data.Semiring` / `Data.Ring` into one wasm and runs.
-
-Two pieces of the build make this practical (ADR 0009):
-
-- **Multi-module linking** — the modules are linked into a single wasm, with
-  cross-module references resolved by qualified name.
+- **Multi-module linking** — every reached module is linked into a single wasm,
+  with cross-module references resolved by qualified name.
 - **Function-level reachability** — only the functions actually reached from the
-  entry are lowered. A `Prelude` module like `Data.Semiring` defines many other
-  instances (`Semiring` for records, functions, `Proxy`, …, some using constructs
-  not yet supported); none are visited, because `poly` reaches only `semiringInt`,
-  the `add`/`mul` accessors, and the `intAdd`/`intMul` intrinsics.
+  entry are lowered. A `Prelude` module like `Data.Semiring` defines many instances
+  (`Semiring` for records, functions, `Proxy`, …, some using constructs not yet
+  supported); none are visited unless reached, so a small program pulls in only the
+  handful of `Prelude` functions it needs (and never trips over the unsupported
+  ones it doesn't touch).
 
-With these settings, a large part of `Prelude` now work as expected.
-More detailed explanation for each functionality can be seen in [this document](./supported-features/Prelude-support.md).
+A large part of `Prelude` works as expected; per-feature notes are in
+[this document](./supported-features/Prelude-support.md).
 
 ## Records
 
