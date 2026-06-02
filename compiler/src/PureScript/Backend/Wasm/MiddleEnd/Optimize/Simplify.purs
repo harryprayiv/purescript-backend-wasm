@@ -22,13 +22,14 @@ import Prelude
 
 import Data.Array as Array
 import Data.Either (Either(..))
+import Data.Foldable (sum)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Set (Set)
 import Data.Set as Set
 import Data.String (joinWith)
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple(..), snd)
 import PureScript.Backend.Wasm.MiddleEnd.FreeVars (binderVars)
 import PureScript.Backend.Wasm.MiddleEnd.IR as M
 import PureScript.CoreFn (Binder(..), Literal(..), Qualified(..))
@@ -88,6 +89,16 @@ simplifyExpr ctx = fixpoint maxPasses
       | Just key <- qkey q
       , Just body <- Map.lookup key ctx.inline -> Just body
     M.App (M.Abs ps b) args -> Just (betaApp ps b args)
+    -- flatten curried application to the canonical n-ary form, so a partially
+    -- applied function (e.g. `ordIntImpl(LT, EQ, GT)`) saturates once its remaining
+    -- arguments arrive and is recognised as the intrinsic rather than a closure
+    M.App (M.App f as) bs -> Just (M.App f (as <> bs))
+    -- inline a single-use (or dead) non-recursive let binding: this lets the
+    -- partial application a dictionary method resolves to (`let cmp =
+    -- ordIntImpl(LT, EQ, GT) in … cmp(x, y) …`) flow into its one application and
+    -- saturate, instead of staying a heap-allocated closure called via `call_ref`
+    M.Let [ M.NonRec _ x e ] body
+      | occurrences x body <= 1 -> Just (substMany (Map.singleton x e) body)
     M.Accessor l (M.Lit (LitObject kvs)) -> lookupField l kvs
     M.Case [ scrut ] alts -> caseOfKnown ctx scrut alts
     _ -> Nothing
@@ -187,6 +198,35 @@ matchLit = case _, _ of
 
 lookupField :: String -> Array (Tuple String M.Expr) -> Maybe M.Expr
 lookupField l = Array.findMap \(Tuple k v) -> if k == l then Just v else Nothing
+
+-- | Count references to a local name `x`. Inner binders that shadow `x` are not
+-- | discounted, so this may *over*-count — which only ever suppresses an inline,
+-- | never causes one to wrongly duplicate work (`substMany` itself respects
+-- | shadowing). Used to gate single-use let inlining.
+occurrences :: String -> M.Expr -> Int
+occurrences x = go
+  where
+  go = case _ of
+    M.Var (Qualified Nothing n) -> if n == x then 1 else 0
+    M.Var _ -> 0
+    M.Lit lit -> sum (map go (litExprs lit))
+    M.Constructor _ _ _ -> 0
+    M.Accessor _ e -> go e
+    M.Update e _ kvs -> go e + sum (map (go <<< snd) kvs)
+    M.Abs _ b -> go b
+    M.App f args -> go f + sum (map go args)
+    M.Case ss alts -> sum (map go ss) + sum (map goAlt alts)
+    M.Let bs body -> sum (map goBind bs) + go body
+  goAlt alt = case alt.result of
+    Right e -> go e
+    Left gs -> sum (map (\g -> go g.guard + go g.expression) gs)
+  goBind = case _ of
+    M.NonRec _ _ e -> go e
+    M.Rec rs -> sum (map (go <<< _.expr) rs)
+  litExprs = case _ of
+    LitArray es -> es
+    LitObject kvs -> map snd kvs
+    _ -> []
 
 -- substitution ----------------------------------------------------------------
 
