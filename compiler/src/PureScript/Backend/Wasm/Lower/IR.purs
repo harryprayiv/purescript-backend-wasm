@@ -22,6 +22,7 @@ data Rep
   | CloRef -- (ref $Clo): the closure parameter of a lifted code function
 
 derive instance eqRep :: Eq Rep
+derive instance ordRep :: Ord Rep
 derive instance genericRep :: Generic Rep _
 instance showRep :: Show Rep where
   show = genericShow
@@ -85,11 +86,13 @@ data Rhs
   = RAtom Atom
   | RPrim Intrinsic (Array Atom) -- inlined machine op over evaluated operands
   | RCallKnown FuncName (Array Atom) -- saturated direct call to a top-level function (ADR 0003 eval/apply)
-  -- | Allocate an ADT value: constructor `tag` plus its field initializers in
-  -- | field order. Operands are `eqref` (ADR 0004); a nullary constructor has an
-  -- | empty operand list. Lowered to `struct.new $ADT [tag, array.new_fixed
-  -- | $Vals fields]`.
-  | RMkData Int (Array Atom)
+  -- | Allocate an ADT value: constructor `tag`, the wasm representation of each
+  -- | field (its struct-field signature; ADR 0013 front B), and the field
+  -- | initializers in field order. The value is one struct `$Data_<sig> = (sub
+  -- | $Data (struct i32 <reps…>))` — the `i32` tag plus a typed field per `Rep`
+  -- | (`i32`/`f64` for concrete scalars, `eqref` otherwise). A nullary constructor
+  -- | (empty fields) is the tag-only base `$Data` and is shared (see Codegen).
+  | RMkData Int (Array Rep) (Array Atom)
   -- | Construct an *enum-like* ADT value (a type whose every constructor is
   -- | nullary, e.g. `Ordering`): the value is just the constructor `tag` as an
   -- | allocation-free `i31ref` (like `Boolean`, ADR 0013), not a heap `$ADT`.
@@ -97,10 +100,11 @@ data Rhs
   -- | Read the constructor tag of an enum-like value as an `i32` (`ref.cast i31ref`
   -- | then `i31.get_s`), to drive a `LitSwitch` rather than reading a `$ADT` tag.
   | REnumTag Atom
-  -- | Project field `index` out of an ADT value (itself an `eqref`), yielding
-  -- | the field's `eqref`. Lowered to a cast to `(ref $ADT)`, a `struct.get` of
-  -- | the fields array, then `array.get`.
-  | RProjField Atom Int
+  -- | Project field `index` out of an ADT value (an `eqref`), given the
+  -- | constructor's field-rep signature (to pick its `$Data_<sig>` struct type).
+  -- | Lowered to a `ref.cast` to that struct, then a `struct.get` of field
+  -- | `index + 1` (field 0 is the tag), read at the field's representation.
+  | RProjField Atom (Array Rep) Int
   -- | Allocate a closure: the lifted code function plus the captured free
   -- | variables (its environment), in capture order. Lowered to
   -- | `struct.new $Clo [ref.func code, array.new_fixed $Vals captures]`.

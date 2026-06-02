@@ -178,6 +178,16 @@ export const typeBuilderSetArrayType = (tb) => (index) => (elementType) => (muta
 export const typeBuilderSetSignatureType = (tb) => (index) => (params) => (results) => () =>
   binaryen._TypeBuilderSetSignatureType(tb, index, params, results);
 
+// Mark a builder slot as "open" (extensible) so other slots may declare it as a
+// supertype — closed/final is the default in the GC type system.
+export const typeBuilderSetOpen = (tb) => (index) => () =>
+  binaryen._TypeBuilderSetOpen(tb, index);
+
+// Declare the slot at `index` to be a subtype of `supertype` (a temp heap type
+// from the same builder, e.g. `typeBuilderGetTempHeapType`).
+export const typeBuilderSetSubType = (tb) => (index) => (supertype) => () =>
+  binaryen._TypeBuilderSetSubType(tb, index, supertype);
+
 export const typeBuilderGetTempHeapType = (tb) => (index) => () =>
   binaryen._TypeBuilderGetTempHeapType(tb, index);
 

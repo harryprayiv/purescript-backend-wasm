@@ -1,0 +1,222 @@
+{
+  "wasmBytes": 8463,
+  "node": "v24.16.0",
+  "benchmarks": [
+    {
+      "name": "fib",
+      "desc": "tree recursion + Int arithmetic",
+      "points": [
+        {
+          "size": 20,
+          "nsPerOp": 27188,
+          "ms": 0.0272,
+          "result": 6765
+        },
+        {
+          "size": 22,
+          "nsPerOp": 72420,
+          "ms": 0.0724,
+          "result": 17711
+        },
+        {
+          "size": 24,
+          "nsPerOp": 187827,
+          "ms": 0.1878,
+          "result": 46368
+        },
+        {
+          "size": 26,
+          "nsPerOp": 498269,
+          "ms": 0.4983,
+          "result": 121393
+        },
+        {
+          "size": 28,
+          "nsPerOp": 1284521,
+          "ms": 1.2845,
+          "result": 317811
+        }
+      ]
+    },
+    {
+      "name": "sumLoop",
+      "desc": "tail loop; +/*/> via Prelude dicts",
+      "points": [
+        {
+          "size": 200000,
+          "nsPerOp": 340243,
+          "ms": 0.3402,
+          "result": 1602155744
+        },
+        {
+          "size": 400000,
+          "nsPerOp": 679863,
+          "ms": 0.6799,
+          "result": 1536522688
+        },
+        {
+          "size": 600000,
+          "nsPerOp": 1018114,
+          "ms": 1.0181,
+          "result": 1084984992
+        },
+        {
+          "size": 800000,
+          "nsPerOp": 1358565,
+          "ms": 1.3586,
+          "result": 1529426816
+        },
+        {
+          "size": 1000000,
+          "nsPerOp": 1697866,
+          "ms": 1.6979,
+          "result": -143234976
+        }
+      ]
+    },
+    {
+      "name": "qsort",
+      "desc": "list quicksort: closures, Ord, alloc",
+      "points": [
+        {
+          "size": 500,
+          "nsPerOp": 75685,
+          "ms": 0.0757,
+          "result": 1
+        },
+        {
+          "size": 1000,
+          "nsPerOp": 184103,
+          "ms": 0.1841,
+          "result": 1
+        },
+        {
+          "size": 1500,
+          "nsPerOp": 300354,
+          "ms": 0.3004,
+          "result": 1
+        },
+        {
+          "size": 2000,
+          "nsPerOp": 434310,
+          "ms": 0.4343,
+          "result": 1
+        },
+        {
+          "size": 3000,
+          "nsPerOp": 707054,
+          "ms": 0.7071,
+          "result": 1
+        }
+      ]
+    },
+    {
+      "name": "nqueens",
+      "desc": "backtracking; mutual recursion",
+      "points": [
+        {
+          "size": 6,
+          "nsPerOp": 35483,
+          "ms": 0.0355,
+          "result": 4
+        },
+        {
+          "size": 7,
+          "nsPerOp": 142374,
+          "ms": 0.1424,
+          "result": 40
+        },
+        {
+          "size": 8,
+          "nsPerOp": 628364,
+          "ms": 0.6284,
+          "result": 92
+        },
+        {
+          "size": 9,
+          "nsPerOp": 3024157,
+          "ms": 3.0242,
+          "result": 352
+        }
+      ]
+    },
+    {
+      "name": "bintreeDfs",
+      "desc": "DFS over a balanced tree",
+      "points": [
+        {
+          "size": 12,
+          "nsPerOp": 26914,
+          "ms": 0.0269,
+          "result": 8386560
+        },
+        {
+          "size": 13,
+          "nsPerOp": 53723,
+          "ms": 0.0537,
+          "result": 33550336
+        },
+        {
+          "size": 14,
+          "nsPerOp": 108802,
+          "ms": 0.1088,
+          "result": 134209536
+        },
+        {
+          "size": 15,
+          "nsPerOp": 217149,
+          "ms": 0.2171,
+          "result": 536854528
+        },
+        {
+          "size": 16,
+          "nsPerOp": 441560,
+          "ms": 0.4416,
+          "result": 2147450880
+        },
+        {
+          "size": 17,
+          "nsPerOp": 944122,
+          "ms": 0.9441,
+          "result": -65536
+        }
+      ]
+    },
+    {
+      "name": "bintreeBfs",
+      "desc": "BFS (list queue) over a tree",
+      "points": [
+        {
+          "size": 8,
+          "nsPerOp": 115595,
+          "ms": 0.1156,
+          "result": 32640
+        },
+        {
+          "size": 9,
+          "nsPerOp": 462863,
+          "ms": 0.4629,
+          "result": 130816
+        },
+        {
+          "size": 10,
+          "nsPerOp": 1879305,
+          "ms": 1.8793,
+          "result": 523776
+        },
+        {
+          "size": 11,
+          "nsPerOp": 7626875,
+          "ms": 7.6269,
+          "result": 2096128
+        },
+        {
+          "size": 12,
+          "nsPerOp": 31671917,
+          "ms": 31.6719,
+          "result": 8386560
+        }
+      ]
+    }
+  ]
+}

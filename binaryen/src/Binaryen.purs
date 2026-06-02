@@ -76,6 +76,8 @@ module Binaryen
   , typeBuilderSetStructType
   , typeBuilderSetArrayType
   , typeBuilderSetSignatureType
+  , typeBuilderSetOpen
+  , typeBuilderSetSubType
   , typeBuilderGetTempHeapType
   , typeBuilderGetTempRefType
   , typeBuilderBuildAndDispose
@@ -409,6 +411,14 @@ foreign import typeBuilderSetArrayType :: TypeBuilder -> Int -> Type -> Boolean 
 -- | each a single (possibly tuple) value type — build a multi-parameter tuple
 -- | with `createType`, and pass a lone type directly for a single result.
 foreign import typeBuilderSetSignatureType :: TypeBuilder -> Int -> Type -> Type -> Effect Unit
+
+-- | Mark slot `index` as **open** (extensible), so other slots may declare it as a
+-- | supertype. The GC type system defaults to closed/final, which forbids subtyping.
+foreign import typeBuilderSetOpen :: TypeBuilder -> Int -> Effect Unit
+
+-- | Declare slot `index` a subtype of `supertype` (a temp heap type from the same
+-- | builder, e.g. from `typeBuilderGetTempHeapType`). The supertype must be `open`.
+foreign import typeBuilderSetSubType :: TypeBuilder -> Int -> HeapType -> Effect Unit
 
 -- | A temporary heap type referring to slot `index`. It may be used in other
 -- | slot definitions before that slot is defined — this is what lets recursive

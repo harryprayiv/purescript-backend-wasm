@@ -28,6 +28,7 @@ import Prelude
 import Binaryen as B
 import Data.Array as Array
 import Data.Foldable (foldr, traverse_)
+import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Set (Set)
@@ -35,9 +36,10 @@ import Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
+import Effect.Exception (error, throwException)
 import PureScript.Backend.Wasm.Codegen.Imports (importRuntime, internStrName, projHelperName, strEqHelperName)
 import PureScript.Backend.Wasm.Codegen.Prim (genPrim)
-import PureScript.Backend.Wasm.Codegen.RuntimeTypes (Ctx, buildRuntimeTypes, repType)
+import PureScript.Backend.Wasm.Codegen.RuntimeTypes (Ctx, DataStruct, buildRuntimeTypes, repType)
 import PureScript.Backend.Wasm.Codegen.Value (atomRep, boxInt, coerce, genAtom, genAtomAs, slotRep, unboxBoolExpr)
 import PureScript.Backend.Wasm.Lower.IR (Atom(..), AnfExpr(..), Branch(..), FuncName(..), IRFunc, LitBranch(..), LitPat(..), Program, RecBind(..), Rep(..), Rhs(..), Slot(..), VarRef(..))
 import PureScript.Backend.Wasm.Lower.Reps (primRep)
@@ -51,8 +53,9 @@ buildModule prog = do
   mod <- B.createModule
   B.setFeaturesGC mod
   rt <- buildRuntimeTypes mod
+  dataGroup <- buildDataTypes mod (dataSignatures prog)
   let sigs = Map.fromFoldable (map (\fn -> Tuple fn.name { params: fn.params, result: fn.result }) prog.funcs)
-  let ctx = { mod, rt, params: [], localReps: [], funcResult: Boxed, sigs }
+  let ctx = { mod, rt, params: [], localReps: [], funcResult: Boxed, sigs, dataBase: dataGroup.base, dataStructs: dataGroup.structs }
   importRuntime ctx
   addInternStr ctx prog.labels
   addNullaryGlobals ctx (nullaryTags prog)
@@ -70,29 +73,87 @@ buildModule prog = do
 nullaryGlobalName :: Int -> String
 nullaryGlobalName tag = "$nullary" <> show tag
 
+-- | Fold a function over every `Rhs` in the program (the only nodes that build or
+-- | project values), used to gather what runtime types/globals to emit.
+foldProgramRhs :: forall a. (Rhs -> a -> a) -> a -> Program -> a
+foldProgramRhs f z prog = foldr (\fn acc -> exprF fn.body acc) z prog.funcs
+  where
+  exprF expr acc = case expr of
+    Return _ -> acc
+    Let _ _ rhs k -> exprF k (f rhs acc)
+    Switch _ branches dflt -> dfltF dflt (foldr (\(Branch _ b) -> exprF b) acc branches)
+    LitSwitch _ branches dflt -> dfltF dflt (foldr (\(LitBranch _ b) -> exprF b) acc branches)
+    LetRec _ k -> exprF k acc
+  dfltF dflt acc = maybe acc (\k -> exprF k acc) dflt
+
 -- | The set of nullary-constructor tags actually constructed anywhere in the
 -- | program, so a shared global is emitted for exactly those (and no more).
 nullaryTags :: Program -> Set Int
-nullaryTags prog = foldr (\fn acc -> exprTags fn.body acc) Set.empty prog.funcs
+nullaryTags = foldProgramRhs collect Set.empty
   where
-  exprTags expr acc = case expr of
-    Return _ -> acc
-    Let _ _ rhs k -> exprTags k (rhsTags rhs acc)
-    Switch _ branches dflt -> dfltTags dflt (foldr (\(Branch _ b) -> exprTags b) acc branches)
-    LitSwitch _ branches dflt -> dfltTags dflt (foldr (\(LitBranch _ b) -> exprTags b) acc branches)
-    LetRec _ k -> exprTags k acc
-  rhsTags rhs acc = case rhs of
-    RMkData tag fields | Array.null fields -> Set.insert tag acc
+  collect rhs acc = case rhs of
+    RMkData tag _ fields | Array.null fields -> Set.insert tag acc
     _ -> acc
-  dfltTags dflt acc = maybe acc (\k -> exprTags k acc) dflt
+
+-- | Every constructor field-rep signature constructed or projected in the program,
+-- | so a `$Data_<sig>` struct type is generated for exactly those.
+dataSignatures :: Program -> Array (Array Rep)
+dataSignatures = foldProgramRhs collect []
+  where
+  collect rhs acc = case rhs of
+    RMkData _ sig _ -> Array.cons sig acc
+    RProjField _ sig _ -> Array.cons sig acc
+    _ -> acc
+
+-- | Build the ADT struct types: a tag-only base `$Data = (struct i32)` (open) plus
+-- | one subtype `$Data_<sig> = (sub $Data (struct i32 <field per rep>))` per distinct
+-- | non-empty signature. The empty signature maps to the base (a nullary ctor is
+-- | just its tag). All in one recursion group so the subtype declarations resolve.
+buildDataTypes :: B.Module -> Array (Array Rep) -> Effect { base :: DataStruct, structs :: Map (Array Rep) DataStruct }
+buildDataTypes _ sigs0 = do
+  let nonEmpty = Array.filter (not <<< Array.null) (Array.nub sigs0)
+  let n = Array.length nonEmpty
+  tb <- B.typeBuilderCreate (1 + n)
+  B.typeBuilderSetStructType tb 0 [ { ty: B.i32, mutable: false } ]
+  B.typeBuilderSetOpen tb 0
+  baseTmp <- B.typeBuilderGetTempHeapType tb 0
+  traverse_
+    ( \(Tuple i sig) -> do
+        B.typeBuilderSetStructType tb (i + 1)
+          (Array.cons { ty: B.i32, mutable: false } (map (\rep -> { ty: fieldWasmType rep, mutable: false }) sig))
+        B.typeBuilderSetSubType tb (i + 1) baseTmp
+    )
+    (Array.mapWithIndex Tuple nonEmpty)
+  hts <- B.typeBuilderBuildAndDispose tb (1 + n)
+  case Array.uncons hts of
+    Just { head: baseHt, tail: structHts } -> do
+      let toStruct ht = { ht, ref: B.typeFromHeapType ht false }
+      let base = toStruct baseHt
+      pure
+        { base
+        , structs: Map.insert [] base
+            (Map.fromFoldable (Array.zipWith (\sig ht -> Tuple sig (toStruct ht)) nonEmpty structHts))
+        }
+    Nothing -> throwException (error "Codegen: expected at least the $Data base type")
+
+-- | The wasm type of a single ADT struct field for a given representation
+-- | (`i32`/`f64` unboxed, otherwise the boxed `eqref`).
+fieldWasmType :: Rep -> B.Type
+fieldWasmType = case _ of
+  I32 -> B.i32
+  F64 -> B.f64
+  _ -> B.eqref
+
+-- | The struct type for a constructor signature (the base for the empty signature).
+dataStructFor :: Ctx -> Array Rep -> DataStruct
+dataStructFor ctx sig = fromMaybe ctx.dataBase (Map.lookup sig ctx.dataStructs)
 
 addNullaryGlobals :: Ctx -> Set Int -> Effect Unit
 addNullaryGlobals ctx tags = traverse_ addOne (Set.toUnfoldable tags :: Array Int)
   where
   addOne tag = do
-    vals <- B.arrayNewFixed ctx.mod ctx.rt.valsHt []
     tagE <- B.i32Const ctx.mod tag
-    initE <- B.structNew ctx.mod ctx.rt.adtHt [ tagE, vals ]
+    initE <- B.structNew ctx.mod ctx.dataBase.ht [ tagE ]
     B.addGlobal ctx.mod (nullaryGlobalName tag) B.eqref false initE
 
 -- | Emit the `internStr` resolver: a `String` key → its interned `i32` label id,
@@ -255,7 +316,7 @@ genSwitch ctx scrutAtom branches dflt = chain branches
   where
   readTag = do
     s <- genAtomAs ctx Boxed scrutAtom
-    c <- B.refCast ctx.mod s ctx.rt.refAdt
+    c <- B.refCast ctx.mod s ctx.dataBase.ref
     B.structGet ctx.mod 0 c B.i32 false
   chain bs = case Array.uncons bs of
     Nothing -> case dflt of
@@ -313,6 +374,9 @@ rhsRep ctx = case _ of
   RPrim intr _ -> primRep intr
   RCallKnown name _ -> maybe Boxed _.result (Map.lookup name ctx.sigs)
   REnumTag _ -> I32
+  -- a projected field is produced at its struct-field rep (so an unboxed scalar
+  -- field is not spuriously unboxed again into its slot)
+  RProjField _ sig idx -> fromMaybe Boxed (Array.index sig idx)
   _ -> Boxed
 
 genRhs :: Ctx -> Rhs -> Effect B.Expression
@@ -324,23 +388,23 @@ genRhs ctx = case _ of
     operands <- traverse (\(Tuple rep a) -> genAtomAs ctx rep a) (Array.zip sig.params args)
     B.call ctx.mod (funcNameStr name) operands (repType ctx sig.result)
   -- a nullary constructor is a shared module global (allocated once); a
-  -- constructor with fields allocates a fresh `$ADT` per construction
-  RMkData tag fields
+  -- constructor with fields is one `struct.new` of its `$Data_<sig>` type, each
+  -- field coerced to its struct-field rep (so a concrete scalar stays unboxed)
+  RMkData tag sig fields
     | Array.null fields -> B.globalGet ctx.mod (nullaryGlobalName tag) B.eqref
     | otherwise -> do
-        fieldEs <- traverse (genAtomAs ctx Boxed) fields
-        vals <- B.arrayNewFixed ctx.mod ctx.rt.valsHt fieldEs
         tagE <- B.i32Const ctx.mod tag
-        B.structNew ctx.mod ctx.rt.adtHt [ tagE, vals ]
+        fieldEs <- traverse (\(Tuple rep at) -> genAtomAs ctx rep at) (Array.zip sig fields)
+        B.structNew ctx.mod (dataStructFor ctx sig).ht (Array.cons tagE fieldEs)
   -- an enum-like value is its tag as an allocation-free `i31ref`
   RMkEnum tag -> B.i32Const ctx.mod tag >>= B.i31New ctx.mod
   REnumTag atom -> genAtomAs ctx Boxed atom >>= unboxBoolExpr ctx
-  RProjField adtAtom index -> do
+  -- project field `index` (struct field `index + 1`, after the tag) from the
+  -- constructor's `$Data_<sig>` struct, at the field's own representation
+  RProjField adtAtom sig index -> do
     a <- genAtomAs ctx Boxed adtAtom
-    c <- B.refCast ctx.mod a ctx.rt.refAdt
-    vals <- B.structGet ctx.mod 1 c ctx.rt.refVals false
-    idx <- B.i32Const ctx.mod index
-    B.arrayGet ctx.mod vals idx B.eqref false
+    c <- B.refCast ctx.mod a (dataStructFor ctx sig).ref
+    B.structGet ctx.mod (index + 1) c (repType ctx (fromMaybe Boxed (Array.index sig index))) false
   -- A record (a type-class dictionary, after newtype erasure) is parallel
   -- label-id / value arrays inside a `$Rec` struct (ADR 0001 / 0007).
   RMkRecord pairs -> do

@@ -31,11 +31,11 @@ import Data.Array as Array
 import Data.Char (toCharCode)
 import Data.Either (Either(..))
 import Data.Foldable (foldl, foldr)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import PureScript.Backend.Wasm.Lower.IR (AnfExpr(..), Atom(..), Branch(..), LitBranch(..), LitPat(..), Rep(..), Rhs(..), Slot, VarRef(..))
-import PureScript.Backend.Wasm.Lower.Types (CtorInfo)
+import PureScript.Backend.Wasm.Lower.Types (CtorInfo, ctorSig)
 import PureScript.Backend.Wasm.Intrinsics (Intrinsic(ArrayIndex, ArrayLength))
 import PureScript.Backend.Wasm.Lower.Monad (Lower, LowerError(..), fresh, throw)
 import PureScript.Backend.Wasm.MiddleEnd.IR as M
@@ -172,7 +172,7 @@ compileCtor ops env occs rows col occ = do
     fieldSlots <- traverse (const fresh) (Array.replicate info.arity unit)
     let fieldOccs = map (AVar <<< Local) fieldSlots
     inner <- compile ops env (spliceAt col fieldOccs occs) specialized
-    pure (Branch info.tag (wrapFieldLets occ fieldSlots inner))
+    pure (Branch info.tag (wrapFieldLets occ (ctorSig info) fieldSlots inner))
 
 -- | Switch on a scalar-literal column: one `LitBranch` per distinct literal, plus
 -- | the default matrix (literal matches always carry a catch-all).
@@ -352,10 +352,14 @@ removeAt :: forall a. Int -> Array a -> Array a
 removeAt col arr = Array.take col arr <> Array.drop (col + 1) arr
 
 -- wrap a branch body in the `Let`s that project the matched constructor's fields.
-wrapFieldLets :: Atom -> Array Slot -> AnfExpr -> AnfExpr
-wrapFieldLets occ fieldSlots body =
-  foldr (\(Tuple idx slot) acc -> Let slot Boxed (RProjField occ idx) acc) body
+-- Each field is read at its own representation (the slot rep and the projection
+-- agree), from the constructor's `$Data_<sig>` struct.
+wrapFieldLets :: Atom -> Array Rep -> Array Slot -> AnfExpr -> AnfExpr
+wrapFieldLets occ sig fieldSlots body =
+  foldr (\(Tuple idx slot) acc -> Let slot (fieldRep idx) (RProjField occ sig idx) acc) body
     (Array.mapWithIndex Tuple fieldSlots)
+  where
+  fieldRep idx = fromMaybe Boxed (Array.index sig idx)
 
 -- wrap a branch body in the `Let`s that project a matched array pattern's elements
 -- (by index, via the `ArrayIndex` prim).

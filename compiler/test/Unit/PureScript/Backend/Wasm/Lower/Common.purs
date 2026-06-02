@@ -203,10 +203,10 @@ rhsAtoms = case _ of
   RAtom a -> [ a ]
   RPrim _ as -> as
   RCallKnown _ as -> as
-  RMkData _ as -> as
+  RMkData _ _ as -> as
   RMkEnum _ -> []
   REnumTag a -> [ a ]
-  RProjField a _ -> [ a ]
+  RProjField a _ _ -> [ a ]
   RMkClosure _ as -> as
   RApply f a -> [ f, a ]
   RMkRecord pairs -> map (\(Tuple _ a) -> a) pairs
@@ -237,7 +237,7 @@ mkDataTags :: AnfExpr -> Array Int
 mkDataTags b = Array.mapMaybe tagOf (allRhs b)
   where
   tagOf = case _ of
-    RMkData tag _ -> Just tag
+    RMkData tag _ _ -> Just tag
     _ -> Nothing
 
 -- | The label-id lists of every `RMkRecord` in a block.
@@ -261,7 +261,7 @@ projFieldIndices :: AnfExpr -> Array Int
 projFieldIndices b = Array.mapMaybe idxOf (allRhs b)
   where
   idxOf = case _ of
-    RProjField _ idx -> Just idx
+    RProjField _ _ idx -> Just idx
     _ -> Nothing
 
 -- | The element counts of every `RMkArray` in a block.

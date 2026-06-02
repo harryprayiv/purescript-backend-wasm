@@ -5,6 +5,7 @@
 module PureScript.Backend.Wasm.Codegen.RuntimeTypes
   ( RuntimeTypes
   , Ctx
+  , DataStruct
   , Sig
   , buildRuntimeTypes
   , repType
@@ -17,6 +18,11 @@ import Data.Map (Map)
 import Effect (Effect)
 import Effect.Exception (error, throwException)
 import PureScript.Backend.Wasm.Lower.IR (FuncName, Rep(..))
+
+-- | A generated ADT struct type: an `$Data_<sig> = (sub $Data (struct i32 <reps>))`,
+-- | or the tag-only base `$Data` itself. `ref` is the non-null reference type, for
+-- | `ref.cast` / `struct.new` / `struct.get` (ADR 0013, front B).
+type DataStruct = { ht :: B.HeapType, ref :: B.Type }
 
 -- | A function's parameter and result representations, so a call site can box /
 -- | unbox its arguments and result to match the callee's (possibly unboxed) ABI.
@@ -63,6 +69,13 @@ type Ctx =
   -- | Every function's signature, keyed by name, so a call coerces its arguments to
   -- | the callee's parameter reps and reads the result at the callee's result rep.
   , sigs :: Map FuncName Sig
+  -- | The tag-only base `$Data = (struct i32)`, cast to for reading any ADT value's
+  -- | constructor tag (every constructor struct is a subtype).
+  , dataBase :: DataStruct
+  -- | One struct type per constructor field-rep signature (`$Data_<sig>`), keyed by
+  -- | the signature; the empty signature maps to `dataBase`. Used to construct
+  -- | (`struct.new`) and project (`ref.cast` + `struct.get`) ADT values.
+  , dataStructs :: Map (Array Rep) DataStruct
   }
 
 -- | Build the value type group (`$Vals` / `$Int` / `$ADT` / `$Clo`) and, in a

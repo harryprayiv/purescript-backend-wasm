@@ -6,6 +6,7 @@
 module PureScript.Backend.Wasm.Lower.Types
   ( CtorInfo
   , ModuleInfo
+  , ctorSig
   , qualifiedKey
   , qualifiedKeyOf
   , qualifiedFuncName
@@ -27,6 +28,14 @@ import PureScript.CoreFn (Qualified(..))
 -- | from the externs (`PureScript.Backend.Wasm.Externs`); without externs every
 -- | field defaults to `Boxed`, so `length fieldReps == arity` always holds.
 type CtorInfo = { tag :: Int, arity :: Int, fieldReps :: Array Rep }
+
+-- | The struct-field signature a constructor lowers to — what `RMkData` /
+-- | `RProjField` carry so codegen picks the `$Data_<sig>` struct type. Uses the
+-- | externs-derived `fieldReps` (ADR 0013 front B), so a concrete `Int`/`Number`
+-- | field is stored unboxed; without externs `fieldReps` is all-`Boxed`, recovering
+-- | the uniform representation.
+ctorSig :: CtorInfo -> Array Rep
+ctorSig info = info.fieldReps
 
 -- | Read-only facts about the whole program being lowered. All name-keyed
 -- | tables use the **module-qualified** name (`Module.ident`), so a reference can

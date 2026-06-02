@@ -138,6 +138,8 @@ assignProgramReps funcs = map (rewriteFunc sigs) funcs
     RAtom (ALitNumber _) -> Tf64
     RCallKnown name _ -> maybe Bx _.result (Map.lookup name s)
     REnumTag _ -> Ti32
+    -- a projected field is produced at the constructor's struct-field rep
+    RProjField _ sig idx -> tyOfRep (fromMaybe Boxed (Array.index sig idx))
     _ -> Bx
 
   -- the join of the types of every atom an expression returns
@@ -248,6 +250,7 @@ producerRep sigs = case _ of
   RAtom (ALitNumber _) -> F64
   RCallKnown name _ -> maybe Boxed (repOfTy <<< _.result) (Map.lookup name sigs)
   REnumTag _ -> I32
+  RProjField _ sig idx -> fromMaybe Boxed (Array.index sig idx)
   _ -> Boxed
 
 -- | Tally, per local slot, the representation each of its uses demands (calls demand
@@ -279,10 +282,10 @@ rhsDemands sigs acc = case _ of
   RAtom at -> demand Boxed at acc
   RCallKnown name args ->
     foldlWithIndex (\i a at -> demand (calleeParamRep sigs name i) at a) acc args
-  RMkData _ fields -> boxedAll acc fields
+  RMkData _ sig fields -> foldlWithIndex (\i a at -> demand (fromMaybe Boxed (Array.index sig i)) at a) acc fields
   RMkEnum _ -> acc
   REnumTag at -> demand Boxed at acc
-  RProjField at _ -> demand Boxed at acc
+  RProjField at _ _ -> demand Boxed at acc
   RMkRecord pairs -> foldl (\a (Tuple _ at) -> demand Boxed at a) acc pairs
   RProjLabel at _ -> demand Boxed at acc
   RMkArray els -> boxedAll acc els

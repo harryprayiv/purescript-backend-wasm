@@ -55,7 +55,7 @@ import PureScript.Backend.Wasm.Lower.IR (Atom(..), AnfExpr(..), FuncName(..), IR
 import PureScript.Backend.Wasm.Lower.Match (MatchOps, compileMatch)
 import PureScript.Backend.Wasm.Lower.Monad (Lower, LowerError(..), fresh, throw)
 import PureScript.Backend.Wasm.Lower.Monad (LowerError(..)) as ReExport
-import PureScript.Backend.Wasm.Lower.Types (CtorInfo, ModuleInfo, peelAbs, qualifiedFuncName, qualifiedKey, qualifiedKeyOf)
+import PureScript.Backend.Wasm.Lower.Types (CtorInfo, ModuleInfo, ctorSig, peelAbs, qualifiedFuncName, qualifiedKey, qualifiedKeyOf)
 import PureScript.Backend.Wasm.Lower.Unbox (assignProgramReps)
 import PureScript.Backend.Wasm.MiddleEnd.FreeVars (freeVars)
 import PureScript.Backend.Wasm.MiddleEnd.IR (Bind(..), Module)
@@ -120,7 +120,7 @@ lowerArg env expr k = case expr of
     | Just info <- Object.lookup (qualifiedKeyOf q) env.ctors ->
         if info.arity == 0 then
           if Object.member (qualifiedKeyOf q) env.enumCtors then bindRhs (RMkEnum info.tag) k
-          else bindRhs (RMkData info.tag []) k
+          else bindRhs (RMkData info.tag (ctorSig info) []) k
         else lowerArg env (etaExpand expr info.arity) k
     | Just arity <- Object.lookup (qualifiedKeyOf q) env.knownFuncs ->
         if arity == 0 then bindRhs (RCallKnown (qualifiedFuncName q) []) k
@@ -228,7 +228,7 @@ lowerApp env { head, args } k = case head of
   -- See `lowerArg`: a defined binding (ctor/knownFunc) shadows the intrinsic
   -- table, so `foreignIntrinsic` is the fallback (foreigns have no decl body).
   M.Var q@(Qualified (Just _) ident)
-    | Just info <- Object.lookup (qualifiedKeyOf q) env.ctors -> applyArity info.arity (RMkData info.tag)
+    | Just info <- Object.lookup (qualifiedKeyOf q) env.ctors -> applyArity info.arity (RMkData info.tag (ctorSig info))
     | Just arity <- Object.lookup (qualifiedKeyOf q) env.knownFuncs -> applyArity arity (RCallKnown (qualifiedFuncName q))
     -- `unsafeCoerce` is representation-preserving (values are uniformly `eqref`), so
     -- it is erased: the argument *is* the result, and any further args apply to it.

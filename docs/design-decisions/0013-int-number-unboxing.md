@@ -143,5 +143,19 @@ that changes per-function param/result reps via a whole-program fixpoint.
   data — `Nil`/`Leaf`), a category of garbage that otherwise scales with data size;
   the measured win is modest because non-nullary cells (`Cons`/`Node`) dominate
   allocation, and the allocation-bound benchmarks are GC-noisy.
-- **B — front B field specialization:** type-directed `i32`/`f64` struct fields for
-  concrete-scalar constructor/record fields, using externs types.
+- **B — front B field specialization (done):** type-directed `i32`/`f64` struct
+  fields for concrete-scalar constructor fields, read from the externs. This needed
+  the externs wired into the pipeline (`bin` loads each `externs.cbor`;
+  `PureScript.Backend.Wasm.Externs.ctorFieldReps` derives, per constructor, the rep
+  of each field by walking its `edDataCtorType`) and a new ADT representation: the
+  uniform `$ADT = (struct i32 (ref $Vals))` (tag + a homogeneous boxed-`eqref`
+  array) became a tag-only **open base `$Data = (struct i32)`** plus one **subtype
+  per field-rep signature** `$Data_<sig> = (sub $Data (struct i32 <typed fields>))`.
+  A match reads the tag by casting to the base; a field projection casts to the
+  constructor's `$Data_<sig>` and `struct.get`s the field at its own rep. Two wins:
+  a concrete `Int`/`Number` field is stored unboxed (no `$Int`/`$Num` box), and the
+  whole value is **one** `struct.new` instead of two allocations (struct + array).
+  Measured vs optimized JS (`bench/compare-js.mjs`): `bintreeDfs` 0.47×→**0.21×**
+  (the big `Node Int` tree), `qsort`/`bintreeBfs` improved; `nqueens` ~flat (its
+  lists are short, so the bottleneck is the backtracking, not the field box).
+  Behaviour-neutral without externs (every field defaults to `Boxed`): e2e 112.
