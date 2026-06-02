@@ -272,6 +272,13 @@ export const addFunctionImportImpl =
   (mod) => (internalName) => (externalModule) => (externalBase) => (params) => (results) => () =>
     mod.addFunctionImport(internalName, externalModule, externalBase, params, results);
 
+export const addGlobalImpl =
+  (mod) => (name) => (type) => (mutable) => (init) => () =>
+    mod.addGlobal(name, type, mutable, init);
+
+export const globalGetImpl = (mod) => (name) => (type) => () =>
+  mod.global.get(name, type);
+
 export const optimizeImpl = (mod) => () => mod.optimize();
 
 // --- Validation & emission --------------------------------------------------
