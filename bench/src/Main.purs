@@ -51,8 +51,8 @@ qsort :: Int -> Int
 qsort n = if isSorted (quicksort (buildList n 1)) then 1 else 0
 
 -- 4. N-Queens — backtracking; returns the number of solutions on an n×n board.
--- (`placeAt` is factored out so its `if` stays in tail position: the backend does
--- not yet support a `case` / `if` in argument position.)
+-- (`placeAt` keeps the per-column `if` in its own tail position — a style choice;
+-- the backend handles a `case` / `if` in argument position too.)
 nqueens :: Int -> Int
 nqueens n = go Nil 0
   where

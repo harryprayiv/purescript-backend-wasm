@@ -150,6 +150,11 @@ lowerArg env expr k = case expr of
   C.Abs _ param body -> do
     { codeName, captures } <- liftLambda Nothing env param body
     bindRhs (RMkClosure codeName captures) k
+  -- A `case` in argument position (e.g. `(if c then a else b) + d`): lower it so
+  -- each branch's result flows into `k` — the continuation is duplicated into every
+  -- branch (commuting conversion), the same trick the `C.Let` case above uses.
+  C.Case _ scrutinees alternatives ->
+    lowerCaseK env scrutinees alternatives \env' body -> lowerArg env' body k
   _ -> throw (UnsupportedExpr "unsupported expression in argument position")
 
 -- | Lower a left-to-right list of operands to atoms, then continue.
@@ -312,7 +317,7 @@ liftLambda self env param body = do
 -- | Lower an expression in tail position to a complete `AnfExpr`.
 lowerTail :: Env -> C.Expr -> Lower AnfExpr
 lowerTail env = case _ of
-  C.Case _ scrutinees alternatives -> lowerCase env scrutinees alternatives
+  C.Case _ scrutinees alternatives -> lowerCaseK env scrutinees alternatives lowerTail
   C.Let _ binds body -> lowerCoreLet env binds body
   expr -> lowerArg env expr \atom -> pure (Return atom)
 
@@ -370,25 +375,30 @@ lowerRecBind env (Tuple rb slot) = case rb.expr of
 -- | `\dict -> case dict of C$Dict v -> …` a type-class method accessor unwraps to)
 -- | carries no runtime tag — the newtype is erased — so it lowers transparently:
 -- | the sub-binder is bound directly to the scrutinee, with no `Switch`.
-lowerCase :: Env -> Array C.Expr -> Array C.CaseAlternative -> Lower AnfExpr
-lowerCase env scrutinees alternatives = case scrutinees of
+-- | Compile a `case` into a `Switch` on the scrutinee's tag, finishing each branch
+-- | with `finish` (so the same compiler serves a tail-position `case` — `finish =
+-- | lowerTail` — and an argument-position one, where `finish` feeds the branch
+-- | result to the surrounding continuation).
+lowerCaseK :: Env -> Array C.Expr -> Array C.CaseAlternative -> (Env -> C.Expr -> Lower AnfExpr) -> Lower AnfExpr
+lowerCaseK env scrutinees alternatives finish = case scrutinees of
   -- A record pattern (`\{ x, y } -> …`) is a single destructuring alternative that
   -- always matches: bind each field's sub-binder to a label projection. (Record
   -- binders are the one shape `Lower.Match` does not handle.)
   [ scrutinee ]
     | Just { fields, body } <- recordPatternAlternative alternatives ->
-        lowerArg env scrutinee \scrutAtom -> bindRecordFields env scrutAtom fields body
+        lowerArg env scrutinee \scrutAtom -> bindRecordFields env scrutAtom fields body finish
   -- Everything else — constructor / literal / variable / wildcard / newtype /
   -- nested patterns, one or many scrutinees — compiles to a decision tree
   -- (`Lower.Match`). Scrutinees are lowered to occurrence atoms first.
   scruts ->
-    lowerArgs env scruts \atoms -> compileMatch (matchOps env) env atoms alternatives
+    lowerArgs env scruts \atoms -> compileMatch (matchOps env finish) env atoms alternatives
 
 -- | The `Lower`-specific operations the decision-tree compiler needs, so it can
--- | stay an independent leaf module (see `Lower.Match`).
-matchOps :: Env -> MatchOps Env
-matchOps env =
-  { lowerBody: lowerTail
+-- | stay an independent leaf module (see `Lower.Match`). `finish` lowers each
+-- | matched branch body (tail position, or feeding a continuation in arg position).
+matchOps :: Env -> (Env -> C.Expr -> Lower AnfExpr) -> MatchOps Env
+matchOps env finish =
+  { lowerBody: finish
   , lowerCond: lowerArg
   , bindLocal: \name atom e -> e { locals = Object.insert name atom e.locals }
   , lookupCtor: \q -> requireCtor env (qualifiedKeyOf q)
@@ -404,16 +414,16 @@ recordPatternAlternative = case _ of
 
 -- | Bind a record pattern's fields, each to a label projection out of the
 -- | scrutinee, then lower the body.
-bindRecordFields :: Env -> Atom -> Array (Tuple String C.Binder) -> C.Expr -> Lower AnfExpr
-bindRecordFields env scrutAtom fields body = case Array.uncons fields of
-  Nothing -> lowerTail env body
+bindRecordFields :: Env -> Atom -> Array (Tuple String C.Binder) -> C.Expr -> (Env -> C.Expr -> Lower AnfExpr) -> Lower AnfExpr
+bindRecordFields env scrutAtom fields body finish = case Array.uncons fields of
+  Nothing -> finish env body
   Just { head: Tuple label subBinder, tail } -> case subBinder of
-    C.NullBinder _ -> bindRecordFields env scrutAtom tail body
+    C.NullBinder _ -> bindRecordFields env scrutAtom tail body finish
     C.VarBinder _ name -> do
       labelId <- internLabel env label
       slot <- fresh
       let env' = env { locals = Object.insert name (AVar (Local slot)) env.locals }
-      rest <- bindRecordFields env' scrutAtom tail body
+      rest <- bindRecordFields env' scrutAtom tail body finish
       pure (Let slot Boxed (RProjLabel scrutAtom labelId) rest)
     _ -> throw (UnsupportedBinder "record pattern field: only var / wildcard sub-binders")
 

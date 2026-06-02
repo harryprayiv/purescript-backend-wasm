@@ -307,6 +307,21 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
           (litSwitchOf <<< _.body <$> exported "f" prog)
             `shouldEqual` Just (Just { pats: [ PInt 0 ], hasDefault: true })
 
+    it "lowers a case in argument position (commuting conversion)" do
+      -- f x = g (case x of 0 -> 100 ; _ -> x)
+      -- The case is an *argument* (not in tail position); it lowers to a `LitSwitch`
+      -- whose branches each continue with the surrounding call to `g`.
+      let
+        decls =
+          [ def "g" (lam "y" (lv "y"))
+          , def "f" (lam "x" (appE (qv "g") (caseOf (lv "x") [ intAlt 0 (litInt 100), wildAlt (lv "x") ])))
+          ]
+      case lower decls of
+        Left err -> fail (show err)
+        Right prog ->
+          (litSwitchOf <<< _.body <$> exported "f" prog)
+            `shouldEqual` Just (Just { pats: [ PInt 0 ], hasDefault: true })
+
     it "compiles String literal patterns to a LitSwitch on PString" do
       -- f s = case s of "hi" -> 1; "ho" -> 2; _ -> 0
       let f = def "f" (lam "s" (caseOf (lv "s") [ strAlt "hi" (litInt 1), strAlt "ho" (litInt 2), wildAlt (litInt 0) ]))
