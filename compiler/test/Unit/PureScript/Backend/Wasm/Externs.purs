@@ -67,8 +67,9 @@ spec = describe "PureScript.Backend.Wasm.Externs (field reps)" do
 
   -- Edge cases the manual `example/FFI` run never exercises: mixed scalar reps and
   -- their order, nullary constants, `Char` vs `Int`, `String` (marshalled), type
-  -- variables, `Boolean` (opaque), and a constraint (a leading dictionary param).
-  it "extracts diverse calling conventions (mixed / nullary / Char / String / poly / Boolean / constraint)" do
+  -- variables, and `Boolean` (opaque). (A *constrained* foreign is impossible — purs
+  -- rejects constraints on `foreign import`s — so it is not exercised here.)
+  it "extracts diverse calling conventions (mixed / nullary / Char / String / poly / Boolean)" do
     decodeExterns "compiler/test/fixtures/Example.Foreigns.externs.cbor" >>= case _ of
       Left err -> fail err
       Right ef -> do
@@ -83,4 +84,3 @@ spec = describe "PureScript.Backend.Wasm.Externs (field reps)" do
         sig "shout" [ MStr ] MStr -- String is marshalled
         sig "identityF" [ MOpaque ] MOpaque -- forall peeled; a type var is opaque
         sig "flag" [] MOpaque -- Boolean is not scalar-unboxed → opaque (nullary)
-        sig "showIt" [ MOpaque, MOpaque ] MStr -- constraint = leading opaque dict param; result String marshalled

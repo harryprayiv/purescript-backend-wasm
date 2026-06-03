@@ -64,25 +64,22 @@ foreignSigs externs = Object.fromFoldable (externs >>= declsOf)
       Just (Tuple (mn <> "." <> ident) { moduleName: mn, base: ident, params: foreignParams ty, result: foreignResult ty })
     _ -> Nothing
 
--- | The wasm representation of each runtime parameter of a foreign's type, in
--- | order. `forall` quantifiers are transparent; each **constraint** is a runtime
--- | dictionary argument (a boxed `eqref`); each function arrow contributes its
--- | argument's scalar rep. So `forall a. Show a => a -> String` has params
--- | `[Boxed (the Show dict), Boxed (a)]`.
+-- | The marshal kind of each parameter of a foreign's type, in order. `forall`
+-- | quantifiers are transparent (a foreign may be polymorphic, e.g. `forall a. a ->
+-- | a`); each function arrow contributes its argument's kind. (Constraints need no
+-- | handling: purs rejects them on `foreign import`s.)
 foreignParams :: forall a. T.Type a -> Array MarshalKind
 foreignParams = case _ of
   T.ForAll _ _ _ _ t _ -> foreignParams t
-  T.ConstrainedType _ _ t -> Array.cons MOpaque (foreignParams t)
   T.TypeApp _ (T.TypeApp _ (T.TypeConstructor _ fn) arg) rest
     | isFunction fn -> Array.cons (marshalKind arg) (foreignParams rest)
   _ -> []
 
--- | The marshal kind of a foreign's result — the type left after the quantifiers,
--- | constraints, and argument arrows.
+-- | The marshal kind of a foreign's result — the type left after the `forall`
+-- | quantifiers and argument arrows.
 foreignResult :: forall a. T.Type a -> MarshalKind
 foreignResult = case _ of
   T.ForAll _ _ _ _ t _ -> foreignResult t
-  T.ConstrainedType _ _ t -> foreignResult t
   T.TypeApp _ (T.TypeApp _ (T.TypeConstructor _ fn) _) rest
     | isFunction fn -> foreignResult rest
   t -> marshalKind t
