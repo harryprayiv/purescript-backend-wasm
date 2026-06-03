@@ -131,6 +131,20 @@ export const instantiateMarshalled = (bytes) => (userForeigns) => (manifestJson)
   return inst;
 };
 
+// Call a marshalled wasm export generically (ADR 0014, export direction). `argsJson`
+// is a JSON array of JS values; each is marshalled into wasm per the export's param
+// kind (the export wrapper exposes marshalRep types — i32/f64 raw, else eqref), the
+// export is called, and the result is marshalled back out and JSON-stringified. Covers
+// Int/Number/Boolean/String/Array/Record uniformly (not closures — not JSON-able).
+export const callExportJson = (inst) => (exportManifestJson) => (name) => (argsJson) => () => {
+  const E = new Proxy(runtime(), { get: (t, p) => (p in t ? t[p] : inst.exports[p]) });
+  const sig = JSON.parse(exportManifestJson)[name];
+  const args = JSON.parse(argsJson);
+  const xs = args.map((a, i) => (isRaw(sig.params[i]) ? a : eqrefFromJs(E, sig.params[i], a)));
+  const r = inst.exports[name](...xs);
+  return JSON.stringify(isRaw(sig.result) ? r : eqrefToJs(E, sig.result, r));
+};
+
 export const callI32x0 = (inst) => (name) => () => inst.exports[name]();
 
 export const callI32x1 = (inst) => (name) => (a) => () => inst.exports[name](a);

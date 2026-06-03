@@ -10,6 +10,8 @@ import Data.Maybe (Maybe)
 import Data.Show.Generic (genericShow)
 import Data.String (joinWith)
 import Data.Tuple (Tuple(..))
+import Foreign.Object (Object)
+import Foreign.Object as Object
 import PureScript.Backend.Wasm.Intrinsics (Intrinsic)
 
 -- | The wasm-level representation chosen for a value.
@@ -240,6 +242,11 @@ type IRFunc =
 type Program =
   { funcs :: Array IRFunc
   , labels :: Array (Tuple String Int)
+  -- | The marshal signature of each **exported** function, keyed by its external
+  -- | name. Lets the export wrapper expose host-facing params/result at their
+  -- | `marshalRep` (so a `String`/`Array`/`Record`/`Boolean`/`Number` export crosses
+  -- | properly, not forced to `i32`), and the JS loader marshal them (ADR 0014).
+  , exportSigs :: Object ForeignImport
   }
 
 -- | A `foreign import` resolved to a wasm host import: its source module / base
@@ -315,6 +322,20 @@ foreignManifestJson sigs = "{" <> joinWith "," (map entry sigs) <> "}"
   where
   entry s =
     "\"" <> s.moduleName <> "." <> s.base <> "\":{\"params\":["
+      <> joinWith "," (map encodeMarshalKind s.params)
+      <> "],\"result\":"
+      <> encodeMarshalKind s.result
+      <> "}"
+
+-- | The export marshal manifest as a JSON object literal (valid JS), keyed by each
+-- | export's **external name** (the name `inst.exports.<name>` is reached by), each
+-- | entry `{"params":[<kind>…],"result":<kind>}` (ADR 0014). The loader/harness use
+-- | it to marshal a JS caller's arguments into wasm and the result back out.
+exportManifestJson :: Object ForeignImport -> String
+exportManifestJson sigs = "{" <> joinWith "," (map entry (Object.toUnfoldable sigs)) <> "}"
+  where
+  entry (Tuple name s) =
+    "\"" <> name <> "\":{\"params\":["
       <> joinWith "," (map encodeMarshalKind s.params)
       <> "],\"result\":"
       <> encodeMarshalKind s.result

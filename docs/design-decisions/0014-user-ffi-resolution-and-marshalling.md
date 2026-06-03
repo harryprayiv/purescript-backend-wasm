@@ -127,7 +127,22 @@ end-to-end FFI call works early and the hard part is de-risked incrementally:
 
 The marshalling glue is **generated JS** that calls exported runtime helpers; it is
 the same machinery the reverse direction (host calling wasm exports with real values)
-will reuse, so the investment is not JS-FFI-specific.
+reuses, so the investment is not JS-FFI-specific.
+
+### The export direction (host → wasm), **done**
+
+The **same glue runs in reverse** for wasm exports a JS host calls. The export wrapper
+exposes each param/result at its `marshalRep` (a plain `Int`/`Char` stays `i32`,
+`Number` is raw `f64`, and `String`/`Boolean`/`Array`/`Record`/closure cross as
+`eqref`), looked up from the function's externs signature; when the kind is unknown
+(no externs) it falls back to the historical `i32` ABI, so a plain `Int` export is
+byte-for-byte unchanged (existing tests/benchmarks keep working). The JS loader wraps
+each export with the **mirror image** of the import glue — arguments marshalled JS→wasm
+(`eqrefFromJs`), the result wasm→JS (`eqrefToJs`) — so callers pass and receive
+ordinary JS values. A function that *returns* a closure works (the wasm→JS `applyClo`
+path); the **JS→wasm closure direction** (a callback *argument* to an export) remains
+deferred (the same registry/host-import gap as the import side). `internStr` is
+exported whenever an import **or** export marshals a record.
 
 ### Rollout (the agreed sequencing)
 

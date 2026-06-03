@@ -32,7 +32,7 @@ import Foreign.Object (Object)
 import Foreign.Object as Object
 import PureScript.Backend.Wasm.Compiler (compileModules, parseModule)
 import PureScript.Backend.Wasm.Externs (foreignSigs)
-import PureScript.Backend.Wasm.Lower.IR (ForeignImport, foreignManifestJson)
+import PureScript.Backend.Wasm.Lower.IR (ForeignImport, MarshalKind(..), foreignManifestJson, exportManifestJson)
 import PureScript.CoreFn (ModuleName, toModuleName)
 import PureScript.ExternsFile.Decoder.Class (decoder)
 import PureScript.ExternsFile.Decoder.Monad (runDecoder)
@@ -192,7 +192,12 @@ buildCmd args = do
         FS.unlink wasmPath
         Console.log (Fmt.fmt @"Wrote {file}" { file: watPath })
       else do
-        when (not (Array.null jsProvided)) (emitLoader bundleDir args.input jsProvided (foreignSigs externs))
+        -- emit the JS loader when there are JS foreign imports to satisfy, or when any
+        -- entry export needs marshalling (a non-`i32`/`f64` param/result); ADR 0014
+        let allSigs = foreignSigs externs
+        let exportSigs = rootExportSigs roots allSigs
+        let needLoader = not (Array.null jsProvided) || Array.any exportNeedsLoader (Object.values exportSigs)
+        when needLoader (emitLoader bundleDir args.input jsProvided allSigs (exportManifestJson exportSigs))
         Console.log (Fmt.fmt @"Wrote {file}" { file: wasmPath })
   where
   -- Resolved against the current working directory (run `bin` from the repo root).
@@ -224,15 +229,35 @@ buildCmd args = do
 -- | used module's `foreign.js` into `<bundle>/foreign/<Module>.js`, then write a
 -- | generic `index.mjs` that instantiates `index.wasm`, discovers its imports at
 -- | run time, and satisfies each from the matching foreign module's JS.
-emitLoader :: FilePath -> FilePath -> Array String -> Object ForeignImport -> Aff Unit
-emitLoader bundleDir input mods sigs = do
+emitLoader :: FilePath -> FilePath -> Array String -> Object ForeignImport -> String -> Aff Unit
+emitLoader bundleDir input mods sigs exportManifest = do
   let foreignDir = Path.concat [ bundleDir, "foreign" ]
   FS.mkdir' foreignDir { recursive: true, mode: permsAll }
   for_ mods \m -> do
     src <- FS.readTextFile UTF8 (Path.concat [ input, m, "foreign.js" ])
     FS.writeTextFile UTF8 (Path.concat [ foreignDir, m <> ".js" ]) src
-  FS.writeTextFile UTF8 (Path.concat [ bundleDir, "index.mjs" ]) (loaderSource (manifestJs mods sigs))
+  FS.writeTextFile UTF8 (Path.concat [ bundleDir, "index.mjs" ]) (loaderSource (manifestJs mods sigs) exportManifest)
   Console.log (Fmt.fmt @"Wrote {file} (+ {n} foreign module(s))" { file: Path.concat [ bundleDir, "index.mjs" ], n: Array.length mods })
+
+-- | The export marshal signatures for the entry (`roots`) modules: every top-level
+-- | value of a root module, keyed by its bare name (ADR 0014). A superset of the
+-- | actually-exported functions — the loader only wraps names present in
+-- | `inst.exports`, so extra entries are harmless.
+rootExportSigs :: Array (Array String) -> Object ForeignImport -> Object ForeignImport
+rootExportSigs roots sigs = Object.fromFoldable do
+  s <- Object.values sigs
+  if Array.elem s.moduleName (map printModname roots) then [ Tuple s.base s ] else []
+
+-- | Whether a root export needs the JS loader to marshal it: any param/result that is
+-- | not a raw scalar (`Int`/`Char` → `i32`, `Number` → `f64`) crosses as an `eqref`
+-- | and so needs the glue (`String`/`Boolean`/`Array`/`Record`/closure).
+exportNeedsLoader :: ForeignImport -> Boolean
+exportNeedsLoader s = Array.any nonRaw s.params || nonRaw s.result
+  where
+  nonRaw = case _ of
+    MI32 -> false
+    MF64 -> false
+    _ -> true
 
 -- | The marshalling manifest as a JSON object literal, keyed by import name
 -- | `Module.base`: `{ "M.f": { "params": [<kind>…], "result": <kind> } }` (ADR 0014).
@@ -243,17 +268,23 @@ manifestJs mods sigs =
   foreignManifestJson (Array.filter (\s -> Array.elem s.moduleName mods) (Object.values sigs))
 
 -- | The generated loader (ADR 0014): instantiate the GC wasm, discover its host
--- | imports, satisfy each from `./foreign/<Module>.js`, and wrap String-typed
--- | params/results with `$Str` ↔ JS-string marshalling (the baked `MANIFEST` says
--- | which positions are strings; conversions go through the runtime's exported
--- | `strLen`/`strByteAt`/`strNew`/`strSetByte`).
-loaderSource :: String -> String
-loaderSource manifest =
+-- | imports, satisfy each from `./foreign/<Module>.js` (wrapping them with argument/
+-- | result marshalling per the baked import `MANIFEST`), and expose the wasm exports
+-- | with the **mirror-image** marshalling (per `EXPORTS_MANIFEST`) so JS callers pass
+-- | and receive ordinary JS values. Conversions go through the runtime's exported
+-- | helpers (`strLen`/`strNew`/`boxInt`/`recEmpty`/`applyClo`/…).
+loaderSource :: String -> String -> String
+loaderSource manifest exportManifest =
   """import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const MANIFEST = """ <> manifest <>
-    """;
+const MANIFEST = """ <> manifest
+    <>
+      """;
+const EXPORTS_MANIFEST = """
+    <> exportManifest
+    <>
+      """;
 
 const bytes = readFileSync(fileURLToPath(new URL("./index.wasm", import.meta.url)));
 const mod = await WebAssembly.compile(bytes);
@@ -326,10 +357,17 @@ const eqrefFromJs = (k, val) => {
   return ref;
 };
 const isRaw = (k) => k === "i" || k === "f";
+// import direction: wasm calls the JS foreign — args wasm→JS, result JS→wasm
 const wrap = (fn, sig) => (...args) => {
   const xs = args.map((a, i) => (isRaw(sig.params[i]) ? a : eqrefToJs(sig.params[i], a)));
   const r = fn(...xs);
   return isRaw(sig.result) ? r : eqrefFromJs(sig.result, r);
+};
+// export direction: JS calls the wasm export — args JS→wasm, result wasm→JS
+const wrapExport = (fn, sig) => (...args) => {
+  const xs = args.map((a, i) => (isRaw(sig.params[i]) ? a : eqrefFromJs(sig.params[i], a)));
+  const r = fn(...xs);
+  return isRaw(sig.result) ? r : eqrefToJs(sig.result, r);
 };
 
 const importObject = {};
@@ -344,6 +382,13 @@ for (const { module, name } of WebAssembly.Module.imports(mod)) {
 }
 
 inst = await WebAssembly.instantiate(mod, importObject);
-export const exports = inst.exports;
+// expose the exports, wrapping each marshalled one so JS callers use plain JS values
+const marshalledExports = {};
+for (const name of Object.keys(inst.exports)) {
+  const sig = EXPORTS_MANIFEST[name];
+  marshalledExports[name] =
+    sig && typeof inst.exports[name] === "function" ? wrapExport(inst.exports[name], sig) : inst.exports[name];
+}
+export const exports = marshalledExports;
 export default exports;
 """

@@ -35,6 +35,7 @@ import Test.E2E.PreludeGenericShowCompare as PreludeGenericShowCompare
 import Test.E2E.PreludeGuards as PreludeGuards
 import Test.E2E.ExprEval as ExprEval
 import Test.E2E.FFI as FFI
+import Test.E2E.FFIExport as FFIExport
 import Test.E2E.PreludeErased as PreludeErased
 import Test.E2E.RecordUnsafe as RecordUnsafe
 import Test.E2E.RecordInstances as RecordInstances
@@ -73,6 +74,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   PreludeGuards.spec
   ExprEval.spec
   FFI.spec
+  FFIExport.spec
   PreludeErased.spec
   RecordUnsafe.spec
   RecordInstances.spec

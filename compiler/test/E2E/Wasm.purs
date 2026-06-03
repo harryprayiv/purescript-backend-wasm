@@ -9,6 +9,8 @@ module Test.E2E.Wasm
   , instantiateLinked
   , instantiateForeign
   , instantiateForeignStr
+  , exportManifestOf
+  , callExportJson
   , callI32x0
   , callI32x1
   , callI32x2
@@ -24,12 +26,15 @@ import Data.ArrayBuffer.Types (Uint8Array)
 import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Exception (error, throwException)
+import Data.Array as Array
+import Data.String (joinWith)
+import Data.Tuple (Tuple(..))
 import Foreign (Foreign)
 import Foreign.Object as Object
 import PureScript.Backend.Wasm.Codegen (buildModule)
 import Data.Traversable (traverse)
 import PureScript.Backend.Wasm.Externs (foreignSigs)
-import PureScript.Backend.Wasm.Lower.IR (Program, foreignManifestJson)
+import PureScript.Backend.Wasm.Lower.IR (Program, foreignManifestJson, exportManifestJson)
 import PureScript.Backend.Wasm.Lower (lowerModule, lowerModules)
 import PureScript.Backend.Wasm.MiddleEnd (optimizeModule, optimizeProgram)
 import PureScript.CoreFn (Module)
@@ -115,6 +120,17 @@ instantiateForeignStr externs userForeigns roots paths = do
       B.dispose mod
       instantiateMarshalled binary userForeigns (foreignManifestJson (Object.values sigs))
 
+-- | The export marshal manifest for the functions of the `roots` modules (ADR 0014):
+-- | the same externs-derived `foreignSigs` (which covers every top-level value),
+-- | restricted to root modules and re-keyed by the export's bare name — matching what
+-- | the wasm export wrapper exposes. Handed to `callExportJson`.
+exportManifestOf :: Array ExternsFile -> Array (Array String) -> String
+exportManifestOf externs roots =
+  exportManifestJson $ Object.fromFoldable do
+    sig <- Object.values (foreignSigs externs)
+    if Array.elem sig.moduleName (map (joinWith ".") roots) then [ Tuple sig.base sig ]
+    else []
+
 -- | A live `WebAssembly.Instance`.
 foreign import data Instance :: Type
 
@@ -130,6 +146,11 @@ foreign import instantiateWith :: Uint8Array -> Foreign -> Effect Instance
 -- | userForeigns manifestJson` — the glue parses the JSON manifest and marshals
 -- | String/Array/Record per kind (ADR 0014).
 foreign import instantiateMarshalled :: Uint8Array -> Foreign -> String -> Effect Instance
+
+-- | Call a marshalled export generically: `callExportJson inst exportManifest name
+-- | argsJson` marshals the JSON args into wasm, calls the export, and returns the
+-- | result marshalled back out and JSON-stringified (ADR 0014).
+foreign import callExportJson :: Instance -> String -> String -> String -> Effect String
 
 foreign import callI32x0 :: Instance -> String -> Effect Int
 foreign import callI32x1 :: Instance -> String -> Int -> Effect Int

@@ -43,7 +43,7 @@ import Data.Array as Array
 import Data.Char (toCharCode)
 import Data.Either (Either(..))
 import Data.Foldable (foldl)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), maybe)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), fst)
 import Foreign.Object (Object)
@@ -509,10 +509,21 @@ lowerModules optimize fieldReps foreignSigs roots modules = do
     (traverse (\e -> lowerTopFunc info e.moduleName e.isRoot (Tuple e.ident e.expr)) toLower)
     { slot: 0, lifted: [], nextCode: 0 }
   let allFuncs = funcs <> st.lifted
+  -- the marshal signature of each exported function (looked up by its qualified name
+  -- in the externs-derived `foreignSigs`, which covers every top-level value), so the
+  -- export wrapper and JS loader can marshal non-`i32` exports (ADR 0014)
+  let
+    exportSigs = Object.fromFoldable do
+      fn <- allFuncs
+      ident <- maybe [] pure fn.export
+      let FuncName key = fn.name
+      sig <- maybe [] pure (Object.lookup key foreignSigs)
+      pure (Tuple ident sig)
   -- representation analysis (ADR 0013): unbox `Int`/`Number` where it avoids boxing
   pure
     { funcs: if optimize then assignProgramReps allFuncs else allFuncs
     , labels: Object.toUnfoldable info.labelIds
+    , exportSigs
     }
 
 -- | Lower a single MIR module to a backend IR `Program`, exporting its top-level

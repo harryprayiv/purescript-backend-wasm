@@ -63,7 +63,7 @@ buildModule prog = do
   addInternStr ctx (needsInternStr prog) prog.labels
   addNullaryGlobals ctx (nullaryTags prog)
   traverse_ (addFunc ctx) prog.funcs
-  traverse_ (addExportWrapper ctx) prog.funcs
+  traverse_ (addExportWrapper ctx prog.exportSigs) prog.funcs
   pure mod
 
 -- | A nullary constructor (`RMkData tag []`) is a constant `$ADT` value — `(tag,
@@ -121,14 +121,15 @@ foreignImports = foldProgramRhs collect Object.empty
 foreignName :: ForeignImport -> String
 foreignName sig = sig.moduleName <> "." <> sig.base
 
--- | Whether any foreign marshals a record (so the JS glue needs `internStr` to map
--- | field names to interned ids; ADR 0014).
+-- | Whether any foreign import **or export** marshals a record (so the JS glue needs
+-- | `internStr` to map field names to interned ids; ADR 0014).
 needsInternStr :: Program -> Boolean
-needsInternStr = foldProgramRhs collect false
+needsInternStr prog = foldProgramRhs collect false prog || Array.any sigHasRecord (Object.values prog.exportSigs)
   where
   collect rhs acc = acc || case rhs of
-    RCallForeign sig _ -> Array.any kindHasRecord sig.params || kindHasRecord sig.result
+    RCallForeign sig _ -> sigHasRecord sig
     _ -> false
+  sigHasRecord sig = Array.any kindHasRecord sig.params || kindHasRecord sig.result
 
 kindHasRecord :: MarshalKind -> Boolean
 kindHasRecord = case _ of
@@ -260,23 +261,34 @@ collectSlotReps = case _ of
   LetRec recBinds k ->
     map (\(RecBind (Slot s) _ _) -> Tuple s Boxed) recBinds <> collectSlotReps k
 
--- | Add the host-facing `i32` wrapper for an exported function (never a code
--- | function — those are not exported): box each `i32` argument, call the
--- | internal `eqref` function, unbox the result.
-addExportWrapper :: Ctx -> IRFunc -> Effect Unit
-addExportWrapper ctx fn = case fn.export of
+-- | Add the host-facing wrapper for an exported function (never a code function —
+-- | those are not exported). The host ABI is each param/result's `marshalRep` (ADR
+-- | 0014): a plain `Int`/`Char` stays `i32`, `Number` is `f64`, and `String`/`Array`/
+-- | `Record`/`Boolean`/closure cross as `eqref` (the JS loader marshals them via the
+-- | runtime helpers). The wrapper coerces between that external rep and the internal
+-- | function's rep. When the export's FFI kind is unknown (no externs entry), it
+-- | falls back to the internal reps — so a plain `Int` export is unchanged.
+addExportWrapper :: Ctx -> Object ForeignImport -> IRFunc -> Effect Unit
+addExportWrapper ctx exportSigs fn = case fn.export of
   Nothing -> pure unit
   Just external -> do
-    -- the host ABI is `i32`; coerce each `i32` argument to the internal function's
-    -- parameter rep, and the result back from its result rep to `i32` (ADR 0011).
+    let
+      mSig = case Object.lookup external exportSigs of
+        Just s | Array.length s.params == Array.length fn.params -> Just s
+        _ -> Nothing
+      -- with a known FFI kind, expose its `marshalRep`; without one (no externs), fall
+      -- back to the historical `i32` ABI (the internal rep is often `Boxed`, so the
+      -- wrapper boxes/unboxes a plain `Int` at the boundary — ADR 0014)
+      extParams = maybe (I32 <$ fn.params) (\s -> marshalRep <$> s.params) mSig
+      extResult = maybe I32 (\s -> marshalRep s.result) mSig
     args <- traverse
-      (\(Tuple i rep) -> B.localGet ctx.mod i B.i32 >>= coerce ctx I32 rep)
-      (Array.mapWithIndex Tuple fn.params)
+      (\(Tuple i (Tuple extRep intRep)) -> B.localGet ctx.mod i (repType ctx extRep) >>= coerce ctx extRep intRep)
+      (Array.mapWithIndex Tuple (Array.zip extParams fn.params))
     result <- B.call ctx.mod (funcNameStr fn.name) args (repType ctx fn.result)
-    ret <- coerce ctx fn.result I32 result
-    let params = B.createType (const B.i32 <$> fn.params)
+    ret <- coerce ctx fn.result extResult result
+    let params = B.createType (repType ctx <$> extParams)
     let wrapperName = funcNameStr fn.name <> "$export"
-    _ <- B.addFunction ctx.mod wrapperName params B.i32 [] ret
+    _ <- B.addFunction ctx.mod wrapperName params (repType ctx extResult) [] ret
     _ <- B.addFunctionExport ctx.mod wrapperName external
     pure unit
 
