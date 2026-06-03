@@ -98,3 +98,36 @@ bfsSum = case _ of
 -- breadth-first traversal (list-queue) of a balanced tree of the given depth.
 bintreeBfs :: Int -> Int
 bintreeBfs depth = bfsSum (QCons (mkTree depth 1) QNil)
+
+-- 7. mapFold — higher-order list processing over a **polymorphic** list `List a`.
+-- `mapList` / `foldlList` are the standard map / left-fold shape: a recursive
+-- function with a *static* function argument (passed unchanged through the
+-- recursion). Applying them to closures stresses closure allocation and indirect
+-- (`call_ref`) application — the target of higher-order specialization. Because
+-- `List a` is polymorphic, the element field is a boxed `eqref`, not an unboxed
+-- `i32` (front-B field unboxing applies only to *concrete*-scalar fields) — which is
+-- the realistic, fair case: JavaScript stores the number natively in the cell too.
+data List a = LNil | LCons a (List a)
+
+mapList :: forall a b. (a -> b) -> List a -> List b
+mapList f = case _ of
+  LNil -> LNil
+  LCons x xs -> LCons (f x) (mapList f xs)
+
+foldlList :: forall a b. (b -> a -> b) -> b -> List a -> b
+foldlList f acc = case _ of
+  LNil -> acc
+  LCons x xs -> foldlList f (f acc x) xs
+
+range :: Int -> List Int
+range k = if k == 0 then LNil else LCons k (range (k - 1))
+
+-- `iters` left-folds (with a closure) a fixed list that was built and mapped (with
+-- a closure) once. `mapList` is not tail-recursive, so the list is kept moderate;
+-- the iteration is the tail-recursive `loop`, making the per-element closure
+-- application — not stack depth or allocation — the thing being measured.
+mapFold :: Int -> Int
+mapFold iters = loop iters 0
+  where
+  base = mapList (\x -> x + 1) (range 2000)
+  loop k acc = if k == 0 then acc else loop (k - 1) (foldlList (\a x -> a + x) acc base)

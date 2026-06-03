@@ -52,6 +52,7 @@ const benches = [
   { name: "nqueens", sizes: [6, 7, 8, 9], desc: "backtracking; mutual recursion" },
   { name: "bintreeDfs", sizes: [12, 13, 14, 15, 16, 17], desc: "DFS over a balanced tree" },
   { name: "bintreeBfs", sizes: [8, 9, 10, 11, 12], desc: "BFS (list queue) over a tree" },
+  { name: "mapFold", sizes: [100, 200, 300, 400, 500], desc: "map/foldl over a list; closure args" },
 ];
 
 // Adaptive timing: warm up, calibrate the repetition count so a timed batch runs

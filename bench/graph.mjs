@@ -68,6 +68,7 @@ const benches = [
   { name: "nqueens", sizes: [6, 7, 8, 9] },
   { name: "bintreeDfs", sizes: [12, 13, 14, 15, 16, 17] },
   { name: "bintreeBfs", sizes: [8, 9, 10, 11, 12] },
+  { name: "mapFold", sizes: [100, 200, 300, 400, 500] },
 ];
 
 const outDir = fileURLToPath(new URL("./results", import.meta.url));
