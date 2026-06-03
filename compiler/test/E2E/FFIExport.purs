@@ -61,3 +61,9 @@ spec = describe "Test.E2E.FFIExport (wasm export marshalling, ADR 0014)" do
     call "mkPoint" "[5]" >>= (_ `shouldEqual` "{\"x\":5,\"y\":5}")
   it "passes a Number through the raw f64 ABI" $ withExports \call ->
     call "idNum" "[2.5]" >>= (_ `shouldEqual` "2.5")
+  -- nullary value bindings (CAFs): evaluated with no arguments, the value marshalled
+  -- out (the production loader exposes these as values, not functions — ADR 0006 aside)
+  it "evaluates a nullary Int value binding" $ withExports \call ->
+    call "ultimateAnswer" "[]" >>= (_ `shouldEqual` "42")
+  it "evaluates a nullary String value binding (marshalled)" $ withExports \call ->
+    call "greeting" "[]" >>= (_ `shouldEqual` "\"hi\"")

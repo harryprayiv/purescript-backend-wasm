@@ -382,12 +382,22 @@ for (const { module, name } of WebAssembly.Module.imports(mod)) {
 }
 
 inst = await WebAssembly.instantiate(mod, importObject);
-// expose the exports, wrapping each marshalled one so JS callers use plain JS values
+// expose the exports as plain JS values. A function export (the type has arguments) is
+// wrapped so callers pass/receive JS values; a nullary value binding (a CAF, the type
+// has no arguments) is evaluated once here and exposed as the value itself — marshalled
+// for a non-raw result — so JS sees `exports.x` as `42` / "hi" / {…}, not a function.
 const marshalledExports = {};
 for (const name of Object.keys(inst.exports)) {
+  const e = inst.exports[name];
   const sig = EXPORTS_MANIFEST[name];
-  marshalledExports[name] =
-    sig && typeof inst.exports[name] === "function" ? wrapExport(inst.exports[name], sig) : inst.exports[name];
+  if (!sig || typeof e !== "function") {
+    marshalledExports[name] = e;
+  } else if (sig.params.length === 0) {
+    const r = e();
+    marshalledExports[name] = isRaw(sig.result) ? r : eqrefToJs(sig.result, r);
+  } else {
+    marshalledExports[name] = wrapExport(e, sig);
+  }
 }
 export const exports = marshalledExports;
 export default exports;
