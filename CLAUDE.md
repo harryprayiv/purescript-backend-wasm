@@ -29,6 +29,10 @@
 
 - Tests exist to verify invariants that the type system cannot guarantee on its own — type-class laws are a representative example. Conversely, a module whose safety is already adequately guaranteed by its types need not be force-fitted with unit tests.
 
+- As a direct implcation of the above, unit tests should not be limited to representative inputs used in examples. Whenever practical, they should also cover edge cases, boundary conditions, invalid inputs, and other scenarios that are prone to subtle implementation errors.
+
+- This project includes a number of examples and benchmarks for demonstration purposes. Examples are intended to illustrate typical usage and provide a quick sanity check of expected behaviour. Benchmarks are intended solely for performance evaluation.
+
 ## Technical
 
 - Modules outside a subsystem should not depend on that subsystem's
