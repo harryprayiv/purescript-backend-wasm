@@ -35,7 +35,7 @@ const strFromJs = (E, s) => {
   return ref;
 };
 // eqref (a boxed, nested value) → JS, by kind. `k` is a parsed kind: a string leaf
-// ("i"/"f"/"b"/"s"/"o"), {a:k} (array), or {r:{field:k}} (record).
+// ("i"/"f"/"b"/"s"/"o"), {a:k} (array), {fn:[pk,rk]} (function), or {r:{field:k}} (record).
 export const eqrefToJs = (E, k, ref) => {
   if (typeof k === "string") {
     if (k === "i") return E.unboxInt(ref);
@@ -49,6 +49,12 @@ export const eqrefToJs = (E, k, ref) => {
     const out = new Array(n);
     for (let i = 0; i < n; i++) out[i] = eqrefToJs(E, k.a, E.arrayGet(ref, i));
     return out;
+  }
+  if (k.fn !== undefined) {
+    // a wasm $Clo → a JS function: marshal the JS arg into wasm, apply the closure
+    // via the runtime trampoline, marshal the wasm result back out
+    const [pk, rk] = k.fn;
+    return (a) => eqrefToJs(E, rk, E.applyClo(ref, eqrefFromJs(E, pk, a)));
   }
   // record: read each known field by its interned label id
   const out = {};
@@ -70,6 +76,11 @@ export const eqrefFromJs = (E, k, val) => {
     const ref = E.arrayNew(val.length);
     for (let i = 0; i < val.length; i++) E.arraySet(ref, i, eqrefFromJs(E, k.a, val[i]));
     return ref;
+  }
+  if (k.fn !== undefined) {
+    // a JS function → a wasm $Clo (a foreign returning/handing back a function): needs
+    // a JS-side function registry + a host import trampoline; ADR 0014 phase 2
+    throw new Error("FFI: marshalling a JS function into wasm is not yet supported (ADR 0014, closure direction 2)");
   }
   // record: recSet each field onto an empty record, keyed by interned label id
   let ref = E.recEmpty();

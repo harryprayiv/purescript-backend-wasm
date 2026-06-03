@@ -25,6 +25,7 @@ foreign import strImports :: Foreign
 foreign import arrImports :: Foreign
 foreign import recImports :: Foreign
 foreign import scalarImports :: Foreign
+foreign import closureImports :: Foreign
 
 decodeExterns :: String -> Aff (Either _ ExternsFile)
 decodeExterns path = do
@@ -113,3 +114,21 @@ spec = describe "Test.E2E.FFI (user foreign import, ADR 0014)" do
         -- nested f64 round-trip: mkNums n = [-2,3.5,-1,n] (JS-built), countPos counts > 0
         liftEffect (callI32x1 inst "countRoundTrip" 5) >>= (_ `shouldEqual` 2)
         liftEffect (callI32x1 inst "countRoundTrip" 0) >>= (_ `shouldEqual` 1)
+
+  it "marshals a closure passed to a JS foreign ($Clo → JS function, wasm→JS)" do
+    decodeExterns "compiler/test/fixtures/Example.FFIClosure.externs.cbor" >>= case _ of
+      Left err -> fail (show err)
+      Right ef -> do
+        inst <- liftEffect
+          ( instantiateForeignStr [ ef ] closureImports
+              [ [ "Example", "FFIClosure" ] ]
+              [ "compiler/test/fixtures/Example.FFIClosure.corefn.json" ]
+          )
+        -- JS applies the PS closure twice; the closure re-enters wasm (addOne)
+        liftEffect (callI32x1 inst "twiceAddOne" 5) >>= (_ `shouldEqual` 7)
+        liftEffect (callI32x1 inst "twiceAddOne" 40) >>= (_ `shouldEqual` 42)
+        -- the closure captures `n` and ignores its argument; JS calls it
+        liftEffect (callI32x1 inst "captured" 41) >>= (_ `shouldEqual` 42)
+        liftEffect (callI32x1 inst "captured" 0) >>= (_ `shouldEqual` 1)
+        -- a callback combined with array marshalling: sumMap addOne [1,2,3] = 2+3+4
+        liftEffect (callI32x1 inst "sumMapAddOne" 0) >>= (_ `shouldEqual` 9)

@@ -95,3 +95,12 @@ spec = describe "PureScript.Backend.Wasm.Externs (field reps)" do
         sig "describe" [ MRecord [ Tuple "name" MStr, Tuple "age" MI32 ] ] MStr
         -- a record mixing a Boolean and a Number field (each recurses to its own kind)
         sig "summarise" [ MRecord [ Tuple "active" MBool, Tuple "ratio" MF64 ] ] MI32
+        -- a function-typed parameter: (Int -> Int) is MFunc, the foreign's own second
+        -- arrow is its own parameter, not part of the function kind
+        sig "applyFn" [ MFunc MI32 MI32, MI32 ] MI32
+        -- a function param with non-scalar inner kinds, and a Boolean result
+        sig "higher" [ MFunc MStr MI32 ] MBool
+        -- `Int -> (Int -> Int)` is the *same type* as `Int -> Int -> Int` (the parens
+        -- are erased), so both arrows peel as the foreign's own params — a bare
+        -- `result = MFunc` never arises (a function only appears as a param or nested)
+        sig "returnsFn" [ MI32, MI32 ] MI32

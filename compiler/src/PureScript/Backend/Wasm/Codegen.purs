@@ -134,6 +134,7 @@ kindHasRecord :: MarshalKind -> Boolean
 kindHasRecord = case _ of
   MRecord _ -> true
   MArray k -> kindHasRecord k
+  MFunc p r -> kindHasRecord p || kindHasRecord r
   _ -> false
 
 -- | Every constructor field-rep signature constructed or projected in the program,

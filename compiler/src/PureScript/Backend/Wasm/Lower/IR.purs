@@ -266,6 +266,7 @@ data MarshalKind
   | MStr -- String
   | MArray MarshalKind -- Array a (elements marshalled by the inner kind)
   | MRecord (Array (Tuple String MarshalKind)) -- a record { l :: T … } (fields by name)
+  | MFunc MarshalKind MarshalKind -- a function a -> b (a `$Clo` ⇄ a JS function)
   | MOpaque -- any other boxed value
 
 derive instance eqMarshalKind :: Eq MarshalKind
@@ -285,12 +286,13 @@ marshalRep = case _ of
   MStr -> Boxed
   MArray _ -> Boxed
   MRecord _ -> Boxed
+  MFunc _ _ -> Boxed -- a closure is the `$Clo` eqref
   MOpaque -> Boxed
 
 -- | A JSON encoding of a `MarshalKind` for the JS marshalling glue (ADR 0014): the
 -- | leaves are the strings `"i"`/`"f"`/`"b"`/`"s"`/`"o"`; an array is `{"a":<kind>}`;
--- | a record is `{"r":{<field>:<kind>,…}}`. The glue dispatches on `typeof`/`.a`/`.r`
--- | and marshals recursively.
+-- | a record is `{"r":{<field>:<kind>,…}}`; a function is `{"fn":[<param>,<result>]}`.
+-- | The glue dispatches on `typeof`/`.a`/`.r`/`.fn` and marshals recursively.
 encodeMarshalKind :: MarshalKind -> String
 encodeMarshalKind = case _ of
   MI32 -> "\"i\""
@@ -299,6 +301,7 @@ encodeMarshalKind = case _ of
   MStr -> "\"s\""
   MArray k -> "{\"a\":" <> encodeMarshalKind k <> "}"
   MRecord fields -> "{\"r\":{" <> joinWith "," (map field fields) <> "}}"
+  MFunc p r -> "{\"fn\":[" <> encodeMarshalKind p <> "," <> encodeMarshalKind r <> "]}"
   MOpaque -> "\"o\""
   where
   field (Tuple name k) = "\"" <> name <> "\":" <> encodeMarshalKind k

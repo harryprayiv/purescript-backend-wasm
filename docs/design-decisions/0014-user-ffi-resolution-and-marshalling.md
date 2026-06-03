@@ -93,22 +93,37 @@ Define the wasm↔JS value correspondence per type, rolled out **scalars-first**
 end-to-end FFI call works early and the hard part is de-risked incrementally:
 
 - **L1 — scalars (first):** `Int` ⇄ JS `number` (`i32`), `Number` ⇄ `number` (`f64`),
-  `Boolean` ⇄ `boolean` (`i31`), `Char` ⇄ a code-point `number`. These cross (almost)
-  directly; the glue is trivial. A numeric foreign (`foreign import cos :: Number ->
-  Number`) is the first end-to-end target.
+  `Char` ⇄ a code-point `number` — all **done** (top-level scalars cross raw). A
+  numeric foreign (`foreign import cos :: Number -> Number`) was the first end-to-end
+  target. `Boolean` ⇄ `boolean` is **done** too, but is *not* a raw scalar: a Boolean
+  is always the boxed `i31ref` (it only reaches an unboxed `i32` at condition sites via
+  `unboxBoolExpr`), so it crosses as an `eqref` and marshals through the recursive glue
+  (`boxBool`/`unboxBool`) uniformly at top level and nested.
 - **L2 — `String`:** `$Str` ⇄ JS `string`, via **exported runtime accessors** — the
   glue reads a `$Str` with `strLen`/`strByteAt` to build a JS string, and builds a
   `$Str` from a JS string via an exported constructor. (These primitives already
   exist in the runtime.)
 - **L3 — `Array` / record / closure (later):** `Array` ⇄ `[]` (**done** — recursive
-  element marshalling via `arrayLen`/`arrayGet`/`arrayNew`/`arraySet`), record ⇄
-  object (**done** — field-by-field, each field recursing into its own kind; the glue
-  reads with `proj` and builds from `recEmpty` via `recSet`, keying on `internStr`
-  applied to the type's field names), closure ⇄ JS `function` (a `call_ref`
-  trampoline, possibly passing PureScript closures to JS as opaque references the glue
-  can re-enter; still later). `Object a` (dynamic string keys) is **deferred** — its
-  representation differs from a static-label `$Rec` and needs a separate decision.
-  Each is additive.
+  element marshalling via `arrayLen`/`arrayGet`/`arrayNew`/`arraySet`; nested scalars
+  box/unbox through the runtime — `boxInt`/`boxNum`/`boxBool` and their inverses — so
+  e.g. `Array Number`'s `$Num` elements and `Array Boolean`'s `i31` elements marshal
+  correctly), record ⇄ object (**done** — field-by-field, each field recursing into
+  its own kind; the glue reads with `proj` and builds from `recEmpty` via `recSet`,
+  keying on `internStr` applied to the type's field names), closure ⇄ JS `function` — the **wasm→JS
+  direction is done**: a function-typed foreign *parameter* (`MFunc`) is marshalled by
+  wrapping the wasm `$Clo` in a JS function that, when the foreign calls it, marshals
+  the argument into wasm, applies the closure via the runtime's exported `applyClo`
+  trampoline (`$callClo1`: cast `eqref`→`$Clo`, read the `funcref`, `call_ref` the
+  `$Code`), and marshals the result back. Curried `a -> b -> c` becomes a curried JS
+  function. *Note:* a top-level `a -> (b -> c)` is the **same type** as `a -> b -> c`,
+  so both arrows peel as the foreign's own (uncurried) parameters — a bare `result =
+  MFunc` never arises; a function kind only appears as a parameter or nested in an
+  `Array`/`Record`. The **JS→wasm direction** (a foreign handing a JS *function* back
+  to wasm, only reachable via a nested function in a result) is **deferred** — it needs
+  a JS-side function registry + a host-import trampoline so wasm can hold and re-enter
+  a JS callable; until then the glue raises a clear error. `Object a` (dynamic string
+  keys) is **deferred** — its representation differs from a static-label `$Rec` and
+  needs a separate decision. Each is additive.
 
 The marshalling glue is **generated JS** that calls exported runtime helpers; it is
 the same machinery the reverse direction (host calling wasm exports with real values)

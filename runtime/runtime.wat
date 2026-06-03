@@ -283,7 +283,9 @@
     (local.get $dest))
 
   ;; Apply a single-argument closure: f(x).
-  (func $callClo1 (param $f eqref) (param $x eqref) (result eqref)
+  ;; Apply an arity-1 closure to one argument (also exported as `applyClo` so the FFI
+  ;; glue can call a PureScript closure passed to a JS foreign — ADR 0014 wasm→JS).
+  (func $callClo1 (export "applyClo") (param $f eqref) (param $x eqref) (result eqref)
     (local $c (ref $Clo))
     (local.set $c (ref.cast (ref $Clo) (local.get $f)))
     (call_ref $Code (local.get $c) (local.get $x) (ref.cast (ref $Code) (struct.get $Clo 0 (local.get $c)))))
