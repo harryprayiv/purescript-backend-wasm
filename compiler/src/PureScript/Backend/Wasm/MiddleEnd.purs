@@ -19,6 +19,7 @@ import Data.Maybe (fromMaybe)
 import Data.Set as Set
 import PureScript.Backend.Wasm.MiddleEnd.IR as M
 import PureScript.Backend.Wasm.MiddleEnd.Optimize.DictElim as DictElim
+import PureScript.Backend.Wasm.MiddleEnd.Optimize.Impurify (impurifyProgram)
 import PureScript.Backend.Wasm.MiddleEnd.Optimize.Inline as Inline
 import PureScript.Backend.Wasm.MiddleEnd.Optimize.LambdaLift (lambdaLiftModule)
 import PureScript.Backend.Wasm.MiddleEnd.Optimize.Specialize (specializeProgram)
@@ -62,7 +63,10 @@ optimizeProgram dictElim modules =
             { inline = Map.union base.inline (Inline.inlineCandidates specialized)
             , newtypeCtors = Set.union base.newtypeCtors (Inline.newtypeCtorNames specialized)
             }
-          prog' = map (DictElim.simplifyModule ctx) specialized
+          -- after dict-elim resolves `bind`/`pure` over `Effect` to the `bindE`/`pureE`
+          -- foreigns, impurify rewrites them to the thunk encoding; the next round's
+          -- simplifier collapses the resulting lambdas/applications (ADR 0015)
+          prog' = impurifyProgram (map (DictElim.simplifyModule ctx) specialized)
         in
           if prog' == prog then prog else fixpoint (n - 1) prog'
 

@@ -1,0 +1,14 @@
+module Eff where
+
+import Prelude
+
+import Effect.Unsafe (unsafePerformEffect)
+
+-- A pure Effect computation (no foreign effects). `unsafePerformEffect` runs it, so
+-- after impurification (ADR 0015) the whole do-block must collapse to plain
+-- arithmetic: `runEff n = n + 1`. The e2e test pins that it both collapses and runs.
+runEff :: Int -> Int
+runEff n = unsafePerformEffect do
+  x <- pure n
+  y <- pure 1
+  pure (x + y)

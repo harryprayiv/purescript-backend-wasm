@@ -41,6 +41,7 @@ import Test.E2E.RecordUnsafe as RecordUnsafe
 import Test.E2E.RecordInstances as RecordInstances
 import Test.E2E.TailCall as TailCall
 import Test.E2E.StackSafe as StackSafe
+import Test.E2E.Eff as Eff
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
@@ -81,3 +82,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   RecordInstances.spec
   TailCall.spec
   StackSafe.spec
+  Eff.spec

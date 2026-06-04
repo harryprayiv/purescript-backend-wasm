@@ -48,6 +48,7 @@ documentation/regeneration inputs, not compiled with the suite.
 | `Rec.corefn.json`     | `Rec.purs.sample`     | `Test.E2E.RecordUnsafe`       | **`Record.Unsafe`**: `unsafeGet` / `unsafeSet` (replace + insert) / `unsafeHas` / `unsafeDelete` — the runtime `String` key resolved via the emitted `internStr`, then the id-keyed `$rt.rec*` helpers. Foreigns are intrinsics, so only `Rec` is linked |
 | `RecInst.corefn.json` | `RecInst.purs.sample` | `Test.E2E.RecordInstances`    | **record instances**: real `Eq (Record r)` / `Show (Record r)` (`reflectSymbol` label + `unsafeGet` value over the row). Links `Data.{Eq,Show,Symbol,Semigroup,HeytingAlgebra}` / `Type.Proxy` |
 | `TailRec.corefn.json` | `TailRec.purs.sample` | `Test.E2E.TailCall`           | **tail-call elimination**: direct top-level tail recursion (`return_call`) and `where go = …` closure self-recursion (lambda-lifted to top level). Deep loops (1_000_000) run in constant stack. Links `Data.{Eq,Ring,Semiring}` |
+| `Eff.corefn.json`     | `Eff.purs.sample`     | `Test.E2E.Eff`                | **Effect impurification** (ADR 0015): a pure `Effect` do-block run via `unsafePerformEffect` must collapse to `n + 1` (`pureE`/`bindE`/`unsafePerformEffect` rewritten to the `Unit -> a` thunk encoding, then the simplifier reduces it). Links `Effect{,.Unsafe}` / `Control.{Applicative,Apply,Bind,Monad}` / `Data.{Functor,Semiring,Unit,Function}` |
 
 `Data.Semiring` / `Data.Ring` / `Data.Eq` / `Data.Ord` / `Data.Ordering` are
 **real `purs`-compiled Prelude output** (copied verbatim from a build's
