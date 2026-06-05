@@ -55,6 +55,8 @@ type MatchOps env =
   -- | Whether a constructor belongs to an enum-like type (all-nullary): its values
   -- | are `i31ref` tags, matched by reading the tag rather than a `$ADT` switch.
   , isEnumCtor :: Qualified String -> Boolean
+  -- | Intern a record label to its `i32` id, for projecting a record-pattern field.
+  , internLabel :: String -> Lower Int
   }
 
 -- | One clause row: the remaining column patterns, the variable bindings collected
@@ -86,6 +88,7 @@ compile ops env occs rows0 = case Array.head rows of
         KArray -> compileArray ops env occs rows col occ
         KScalar -> compileLit ops env occs rows col occ
         KCtor -> compileCtor ops env occs rows col occ
+        KRecord -> compileRecord ops env occs rows col occ
   where
   -- An *unguarded* all-irrefutable row matches everything unconditionally, so rows
   -- after it are unreachable and dropped. A guarded one is not a catch-all (its
@@ -211,6 +214,34 @@ compileArray ops env occs rows col occ = do
     inner <- compile ops env (spliceAt col elemOccs occs) specialized
     pure (LitBranch (PInt len) (wrapElemLets occ elemSlots inner))
 
+-- | Decompose a record-pattern column. A record is a product — it always matches —
+-- | so there is no switch and no default: project the fields any row mentions (by label,
+-- | via `RProjLabel`) into fresh occurrences and splice each row's sub-binders in (a row
+-- | not mentioning a projected label gets a wildcard there). Analogous to `compileCtor`,
+-- | but single-branch (no tag) and keyed on labels rather than positions.
+compileRecord :: forall env. MatchOps env -> env -> Array Atom -> Array Clause -> Int -> Atom -> Lower AnfExpr
+compileRecord ops env occs rows col occ = do
+  let labels = Array.nub (rows >>= recLabels col)
+  fieldSlots <- traverse (const fresh) labels
+  let fieldOccs = map (AVar <<< Local) fieldSlots
+  let specialized = Array.mapMaybe (specializeRecord occ col labels) rows
+  inner <- compile ops env (spliceAt col fieldOccs occs) specialized
+  wrapRecordLets ops occ (Array.zip labels fieldSlots) inner
+
+recLabels :: Int -> Clause -> Array String
+recLabels col r = case Array.index r.pats col of
+  Just (C.LiteralBinder _ (C.LitObject kvs)) -> map (\(Tuple l _) -> l) kvs
+  _ -> []
+
+-- | Wrap a body in the `Let`s that project a matched record pattern's fields by label.
+wrapRecordLets :: forall env. MatchOps env -> Atom -> Array (Tuple String Slot) -> AnfExpr -> Lower AnfExpr
+wrapRecordLets ops occ pairs inner = case Array.uncons pairs of
+  Nothing -> pure inner
+  Just { head: Tuple label slot, tail } -> do
+    labelId <- ops.internLabel label
+    rest <- wrapRecordLets ops occ tail inner
+    pure (Let slot Boxed (RProjLabel occ labelId) rest)
+
 -- | The default matrix: rows whose column `col` is a wildcard (a var binds the
 -- | whole occurrence), with that column removed. `Nothing` when empty (unreachable).
 defaultMatrix :: forall env. MatchOps env -> env -> Array Atom -> Array Clause -> Int -> Atom -> Lower (Maybe AnfExpr)
@@ -250,6 +281,24 @@ specializeArray occ col len row = case Array.index row.pats col of
     Just (row { pats = spliceAt col (wildcards len) row.pats })
   _ -> Nothing
 
+-- specialize a row for a record-pattern column over the projected `labels` (splice each
+-- field's sub-binder, a wildcard where the row's record omits that label), or treat a
+-- var/wildcard as `|labels|` wildcards, else drop the row.
+specializeRecord :: Atom -> Int -> Array String -> Clause -> Maybe Clause
+specializeRecord occ col labels row = case Array.index row.pats col of
+  Just (C.LiteralBinder _ (C.LitObject kvs)) ->
+    let
+      subs = map (\l -> stripNewtype (fromMaybe (C.NullBinder synthAnn) (lookupField l kvs))) labels
+    in
+      Just (row { pats = spliceAt col subs row.pats })
+  Just (C.VarBinder _ name) ->
+    Just (row { pats = spliceAt col (wildcards (Array.length labels)) row.pats, binds = Array.snoc row.binds (Tuple name occ) })
+  Just (C.NullBinder _) ->
+    Just (row { pats = spliceAt col (wildcards (Array.length labels)) row.pats })
+  _ -> Nothing
+  where
+  lookupField l = Array.findMap (\(Tuple k b) -> if k == l then Just b else Nothing)
+
 defaultRow :: Atom -> Int -> Clause -> Maybe Clause
 defaultRow occ col row = case Array.index row.pats col of
   Just (C.VarBinder _ name) -> Just (row { pats = removeAt col row.pats, binds = Array.snoc row.binds (Tuple name occ) })
@@ -281,6 +330,7 @@ data ColKind
   = KCtor
   | KScalar
   | KArray
+  | KRecord
 
 columnKind :: Array Clause -> Int -> ColKind
 columnKind rows col = case Array.findMap rowKind rows of
@@ -290,6 +340,7 @@ columnKind rows col = case Array.findMap rowKind rows of
   rowKind r = binderKind =<< Array.index r.pats col
   binderKind = case _ of
     C.LiteralBinder _ (C.LitArray _) -> Just KArray
+    C.LiteralBinder _ (C.LitObject _) -> Just KRecord
     C.LiteralBinder _ _ -> Just KScalar
     C.ConstructorBinder _ _ _ _ -> Just KCtor
     _ -> Nothing
