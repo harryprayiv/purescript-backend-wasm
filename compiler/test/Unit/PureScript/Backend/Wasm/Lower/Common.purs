@@ -205,6 +205,7 @@ allRhs = case _ of
   LitSwitch _ branches dflt ->
     (branches >>= \(LitBranch _ b) -> allRhs b) <> maybe [] allRhs dflt
   LetRec _ k -> allRhs k
+  LetJoin _ _ producer k -> allRhs producer <> allRhs k
 
 rhsAtoms :: Rhs -> Array Atom
 rhsAtoms = case _ of
@@ -232,6 +233,7 @@ blockAtoms = case _ of
   LitSwitch s branches dflt ->
     Array.cons s ((branches >>= \(LitBranch _ b) -> blockAtoms b) <> maybe [] blockAtoms dflt)
   LetRec recBinds k -> (recBinds >>= \(RecBind _ _ env) -> env) <> blockAtoms k
+  LetJoin _ _ producer k -> blockAtoms producer <> blockAtoms k
 
 -- | The capture lists of every `RMkClosure` in a block.
 closureCaptures :: AnfExpr -> Array (Array Atom)
@@ -306,6 +308,10 @@ litSwitchOf :: AnfExpr -> Maybe { pats :: Array LitPat, hasDefault :: Boolean }
 litSwitchOf = case _ of
   LitSwitch _ branches dflt -> Just { pats: map (\(LitBranch p _) -> p) branches, hasDefault: isJust dflt }
   Let _ _ _ k -> litSwitchOf k
+  -- an argument-position case lowers to a join point whose producer holds the switch (ADR 0022)
+  LetJoin _ _ producer k -> case litSwitchOf producer of
+    Just r -> Just r
+    Nothing -> litSwitchOf k
   _ -> Nothing
 
 -- | The first `Switch` reachable along the `Let` spine: its branch tags and
@@ -322,6 +328,7 @@ hasSwitch = case _ of
   LitSwitch _ _ _ -> true
   Let _ _ _ k -> hasSwitch k
   LetRec _ k -> hasSwitch k
+  LetJoin _ _ producer k -> hasSwitch producer || hasSwitch k
   Return _ -> false
 
 -- | The scrutinee atom of every `Switch` / `LitSwitch` in the tree (one per
@@ -336,6 +343,7 @@ switchScrutinees = case _ of
   LitSwitch s branches dflt ->
     Array.cons s ((branches >>= \(LitBranch _ b) -> switchScrutinees b) <> maybe [] switchScrutinees dflt)
   LetRec _ k -> switchScrutinees k
+  LetJoin _ _ producer k -> switchScrutinees producer <> switchScrutinees k
 
 -- | The number of `LitSwitch` decision nodes in the tree.
 countLitSwitches :: AnfExpr -> Int
@@ -347,6 +355,7 @@ countLitSwitches = case _ of
   LitSwitch _ branches dflt ->
     1 + sumLitBranches branches + maybe 0 countLitSwitches dflt
   LetRec _ k -> countLitSwitches k
+  LetJoin _ _ producer k -> countLitSwitches producer + countLitSwitches k
   where
   sumBranches = Array.foldl (\acc (Branch _ b) -> acc + countLitSwitches b) 0
   sumLitBranches = Array.foldl (\acc (LitBranch _ b) -> acc + countLitSwitches b) 0

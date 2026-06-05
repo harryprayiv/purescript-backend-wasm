@@ -16,7 +16,7 @@ import PureScript.Backend.Wasm.Lower.IR (Atom(..), FuncName(..), LitPat(..), Mar
 import PureScript.CoreFn as CF
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
-import Test.Unit.PureScript.Backend.Wasm.Lower.Common (allRhs, ann, appE, blockAtoms, boolAlt, caseOf, closureCaptures, ctor, ctorAlt, def, dictCtorDecl, exportOf, exported, intAlt, isApply, isCallForeign, isPrim, lam, letRec2, liftedFuncs, litInt, litObj, litStr, litSwitchOf, lower, lowerForeign, lowerMany, lv, mkDataTags, newtypeCase, objUpdate, projLabelIds, qv, qvIn, recAlt, recordLabelIds, strAlt, switchOf, switchScrutinees, hasSwitch, accessor, varBinder, arrayLengths, callKnownArities, callKnownNames, letRecOf, case2, ctorBinder, alt2, nullBinder, wildAlt, moduleNamed)
+import Test.Unit.PureScript.Backend.Wasm.Lower.Common (allRhs, ann, appE, blockAtoms, boolAlt, caseOf, closureCaptures, ctor, ctorAlt, def, dictCtorDecl, exportOf, exported, intAlt, isApply, isCallForeign, isPrim, lam, letRec2, liftedFuncs, litInt, litObj, litStr, litSwitchOf, lower, lowerForeign, lowerMany, lv, mkDataTags, newtypeCase, objUpdate, projLabelIds, qv, qvIn, recAlt, recordLabelIds, strAlt, switchOf, switchScrutinees, hasSwitch, accessor, varBinder, arrayLengths, callKnownArities, callKnownNames, countLitSwitches, letRecOf, case2, ctorBinder, alt2, nullBinder, wildAlt, moduleNamed)
 
 -- A function with a capturing lambda applied immediately:
 -- `f a b = (\y -> intAdd a y) b`. The lambda captures `a`.
@@ -299,10 +299,12 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
           (litSwitchOf <<< _.body <$> exported "f" prog)
             `shouldEqual` Just (Just { pats: [ PInt 0 ], hasDefault: true })
 
-    it "lowers a case in argument position (commuting conversion)" do
+    it "lowers a case in argument position to a join point (ADR 0022)" do
       -- f x = g (case x of 0 -> 100 ; _ -> x)
-      -- The case is an *argument* (not in tail position); it lowers to a `LitSwitch`
-      -- whose branches each continue with the surrounding call to `g`.
+      -- The case is an *argument* (not in tail position); it lowers to a `LetJoin`
+      -- whose producer is the `LitSwitch` and whose continuation — the call to `g` —
+      -- runs ONCE, rather than the continuation being duplicated into each branch
+      -- (which is `2^depth` on nested argument-position cases).
       let
         decls =
           [ def "g" (lam "y" (lv "y"))
@@ -310,9 +312,15 @@ spec = describe "PureScript.Backend.Wasm.Lower (lowering)" do
           ]
       case lower decls of
         Left err -> fail (show err)
-        Right prog ->
-          (litSwitchOf <<< _.body <$> exported "f" prog)
-            `shouldEqual` Just (Just { pats: [ PInt 0 ], hasDefault: true })
+        Right prog -> case exported "f" prog of
+          Nothing -> fail "expected an exported function f"
+          Just fn -> do
+            -- the switch is present (now inside the join producer)
+            litSwitchOf fn.body `shouldEqual` Just { pats: [ PInt 0 ], hasDefault: true }
+            -- the join point compiles to exactly one decision node …
+            countLitSwitches fn.body `shouldEqual` 1
+            -- … and the continuation is shared: `g` is called exactly once, not once per branch
+            Array.length (callKnownNames fn.body) `shouldEqual` 1
 
     it "compiles String literal patterns to a LitSwitch on PString" do
       -- f s = case s of "hi" -> 1; "ho" -> 2; _ -> 0

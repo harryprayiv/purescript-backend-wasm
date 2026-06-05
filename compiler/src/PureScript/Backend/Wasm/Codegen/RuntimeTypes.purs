@@ -64,8 +64,14 @@ type Ctx =
   -- | temporaries), so codegen can declare and read each local at its chosen wasm
   -- | type and box/unbox only at representation boundaries.
   , localReps :: Array Rep
-  -- | The current function's result representation (what `Return` coerces to).
+  -- | The representation the *current tail* must produce (what `Return` coerces to).
+  -- | At the function body this is the function's result rep; inside a `LetJoin`
+  -- | producer it is temporarily the join slot's rep (ADR 0022).
   , funcResult :: Rep
+  -- | Whether the current position is the function's tail, so a `Let … (RCallKnown …)
+  -- | (Return …)` may emit `return_call`. False inside a `LetJoin` producer block,
+  -- | where a `return_call` would return from the whole function and skip the join.
+  , tailPos :: Boolean
   -- | Every function's signature, keyed by name, so a call coerces its arguments to
   -- | the callee's parameter reps and reads the result at the callee's result rep.
   , sigs :: Map FuncName Sig

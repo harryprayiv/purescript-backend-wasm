@@ -167,6 +167,13 @@ data AnfExpr
   -- | scrutinee and compares it to the literal. The optional default is the
   -- | catch-all (`_`/var) arm; its absence with no match traps.
   | LitSwitch Atom (Array LitBranch) (Maybe AnfExpr)
+  -- | A join point (ADR 0022): run `producer` as a value-producing block — every
+  -- | tail `Return v` inside it yields the join value — bind that value to `slot`
+  -- | at `rep`, then run the continuation once. Lowered to
+  -- | `(local.set slot (block (result rep) <producer>)); <k>`. This is how a `case`
+  -- | in *argument* position is lowered without duplicating the continuation into
+  -- | every branch (the commuting-conversion blowup).
+  | LetJoin Slot Rep AnfExpr AnfExpr
 
 -- | A literal pattern. A `Char` pattern is a `PInt` of its code point (same
 -- | runtime representation); a `String` pattern compares by the runtime
@@ -210,6 +217,7 @@ instance showAnfExpr :: Show AnfExpr where
     Switch scrut branches dflt -> "(Switch " <> show scrut <> " " <> show branches <> " " <> show dflt <> ")"
     LetRec binds k -> "(LetRec " <> show binds <> " " <> show k <> ")"
     LitSwitch scrut branches dflt -> "(LitSwitch " <> show scrut <> " " <> show branches <> " " <> show dflt <> ")"
+    LetJoin slot rep producer k -> "(LetJoin " <> show slot <> " " <> show rep <> " " <> show producer <> " " <> show k <> ")"
 
 -- | A top-level function. `params` carries both the arity (its length) and the
 -- | representation of each parameter; parameters occupy slots

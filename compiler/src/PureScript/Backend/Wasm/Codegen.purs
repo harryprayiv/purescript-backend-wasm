@@ -58,7 +58,7 @@ buildModule prog = do
   rt <- buildRuntimeTypes mod
   dataGroup <- buildDataTypes mod (dataSignatures prog)
   let sigs = Map.fromFoldable (map (\fn -> Tuple fn.name { params: fn.params, result: fn.result }) prog.funcs)
-  let ctx = { mod, rt, params: [], localReps: [], funcResult: Boxed, sigs, dataBase: dataGroup.base, dataStructs: dataGroup.structs }
+  let ctx = { mod, rt, params: [], localReps: [], funcResult: Boxed, tailPos: true, sigs, dataBase: dataGroup.base, dataStructs: dataGroup.structs }
   importRuntime ctx
   addForeignImports ctx prog
   addInternStr ctx (needsInternStr prog) prog.labels
@@ -89,6 +89,7 @@ foldProgramRhs f z prog = foldr (\fn acc -> exprF fn.body acc) z prog.funcs
     Switch _ branches dflt -> dfltF dflt (foldr (\(Branch _ b) -> exprF b) acc branches)
     LitSwitch _ branches dflt -> dfltF dflt (foldr (\(LitBranch _ b) -> exprF b) acc branches)
     LetRec _ k -> exprF k acc
+    LetJoin _ _ producer k -> exprF k (exprF producer acc)
   dfltF dflt acc = maybe acc (\k -> exprF k acc) dflt
 
 -- | The set of nullary-constructor tags actually constructed anywhere in the
@@ -252,7 +253,7 @@ funcNameStr (FuncName n) = n
 addFunc :: Ctx -> IRFunc -> Effect Unit
 addFunc ctx0 fn = do
   let localReps = buildLocalReps fn
-  let ctx = ctx0 { params = fn.params, localReps = localReps, funcResult = fn.result }
+  let ctx = ctx0 { params = fn.params, localReps = localReps, funcResult = fn.result, tailPos = true }
   body <- genBody ctx fn.body
   let params = B.createType (repType ctx <$> fn.params)
   -- `Let`-bound locals (the slots after the parameters) take their chosen rep
@@ -280,6 +281,8 @@ collectSlotReps = case _ of
     (branches >>= \(LitBranch _ b) -> collectSlotReps b) <> maybe [] collectSlotReps dflt
   LetRec recBinds k ->
     map (\(RecBind (Slot s) _ _) -> Tuple s Boxed) recBinds <> collectSlotReps k
+  LetJoin (Slot s) rep producer k ->
+    Array.cons (Tuple s rep) (collectSlotReps producer <> collectSlotReps k)
 
 -- | Add the host-facing wrapper for an exported function (never a code function —
 -- | those are not exported). The host ABI is each param/result's `marshalRep` (ADR
@@ -328,7 +331,8 @@ genBody ctx = go []
     -- coercion can sit between the call and the return); otherwise fall through to a
     -- normal call. Closure tail calls (`RApply`) are not covered here.
     Let (Slot index) _ (RCallKnown name args) (Return (AVar (Local (Slot retIndex))))
-      | index == retIndex
+      | ctx.tailPos
+      , index == retIndex
       , Just sig <- Map.lookup name ctx.sigs
       , sig.result == ctx.funcResult -> do
           operands <- traverse (\(Tuple rep a) -> genAtomAs ctx rep a) (Array.zip sig.params args)
@@ -344,6 +348,13 @@ genBody ctx = go []
       allocs <- traverse (allocRecClosure ctx groupSlots) recBinds
       patches <- traverse (patchRecClosure ctx groupSlots) recBinds
       go (statements <> allocs <> Array.concat patches) k
+    -- A join point (ADR 0022): generate the `producer` as a value-producing block
+    -- (its tails yield `rep`, and `return_call` is disabled so it cannot escape the
+    -- function), store it into the join slot, then continue the (single) continuation.
+    LetJoin (Slot slot) rep producer k -> do
+      producerExpr <- genBody (ctx { funcResult = rep, tailPos = false }) producer
+      stmt <- B.localSet ctx.mod slot producerExpr
+      go (Array.snoc statements stmt) k
   -- the body / branch block produces the function's result (a tail position)
   seal statements value =
     if Array.null statements then pure value

@@ -131,6 +131,9 @@ assignProgramReps funcs = map (rewriteFunc sigs) funcs
         maybe acc1 (collectProducers s acc1) dflt
     LetRec recBinds k ->
       collectProducers s (foldl (\a (RecBind (Slot slot) _ _) -> Map.insert slot Bx a) acc recBinds) k
+    -- the join slot is kept boxed (ADR 0022); still descend into the producer's `Let`s
+    LetJoin (Slot slot) _ producer k ->
+      collectProducers s (Map.insert slot Bx (collectProducers s acc producer)) k
 
   producerTy s = case _ of
     RPrim intr _ -> tyOfRep (primRep intr)
@@ -155,6 +158,8 @@ assignProgramReps funcs = map (rewriteFunc sigs) funcs
       LitSwitch _ branches dflt ->
         foldl joinTy (maybe Top go dflt) (map (\(LitBranch _ b) -> go b) branches)
       LetRec _ k -> go k
+      -- the producer's tails yield the (boxed) join slot, not the function result
+      LetJoin _ _ _ k -> go k
     atomReturnTy = case _ of
       AVar (Local (Slot slot)) -> fromMaybe Bx (Map.lookup slot lts)
       ALitInt _ -> Ti32
@@ -189,6 +194,7 @@ buildCallSites funcs = foldl perFunc Map.empty funcs
         in
           maybe acc1 (go acc1) dflt
       LetRec _ k -> go acc k
+      LetJoin _ _ producer k -> go (go acc producer) k
 
 -- applying the signatures -----------------------------------------------------
 
@@ -228,6 +234,8 @@ rewriteFunc sigs fn = fn
     LitSwitch scrut branches dflt ->
       LitSwitch scrut (map (\(LitBranch p b) -> LitBranch p (rewrite b)) branches) (map rewrite dflt)
     LetRec binds k -> LetRec binds (rewrite k)
+    -- the join slot stays boxed; rewrite the producer and continuation in place
+    LetJoin slot rep producer k -> LetJoin slot rep (rewrite producer) (rewrite k)
 
 -- local slot rule -------------------------------------------------------------
 
@@ -277,6 +285,7 @@ collectDemands sigs = go
         maybe acc2 (go acc2) dflt
     LetRec recBinds k ->
       go (foldl (\a (RecBind _ _ env) -> boxedAll a env) acc recBinds) k
+    LetJoin _ _ producer k -> go (go acc producer) k
 
 rhsDemands :: Map FuncName Sig -> Map Int Counts -> Rhs -> Map Int Counts
 rhsDemands sigs acc = case _ of

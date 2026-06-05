@@ -49,6 +49,7 @@ history.
 | 0019 | [A faithful, uniform `Effect` lowering (correctness before collapse)](0019-faithful-effect-lowering.md) | Proposed |
 | 0020 | [A reduction-aware inliner (inline when it reduces, share when it doesn't)](0020-reduction-aware-inliner.md) | Proposed |
 | 0021 | [Streaming, dependency-ordered whole-program optimization](0021-streaming-dependency-ordered-wpo.md) | Proposed |
+| 0022 | [Join points for `case` in argument position](0022-join-points-for-case-in-argument-position.md) | Proposed |
 
 ## Scope
 

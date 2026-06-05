@@ -206,11 +206,17 @@ lowerArg env expr k = case expr of
     Just { head: param, tail } -> do
       { codeName, captures } <- liftLambda Nothing env param (reAbs tail body)
       bindRhs (RMkClosure codeName captures) k
-  -- A `case` in argument position (e.g. `(if c then a else b) + d`): lower it so
-  -- each branch's result flows into `k` — the continuation is duplicated into every
-  -- branch (commuting conversion), the same trick the `M.Let` case above uses.
-  M.Case scrutinees alternatives ->
-    lowerCaseK env scrutinees alternatives \env' body -> lowerArg env' body k
+  -- A `case` in argument position (e.g. `(if c then a else b) + d`): lower it to a
+  -- **join point** (ADR 0022). Each branch finishes by `Return`-ing its value (so the
+  -- compiled switch is a value-producing block), that value is bound once to a fresh
+  -- join slot, and the continuation `k` runs a single time on the slot. Duplicating
+  -- `k` into every branch instead (a naive commuting conversion) is `2^depth` on
+  -- nested argument-position cases — the `genericShow`-on-recursive-type blowup.
+  M.Case scrutinees alternatives -> do
+    slot <- fresh
+    producer <- lowerCaseK env scrutinees alternatives \env' body -> lowerArg env' body (pure <<< Return)
+    rest <- k (AVar (Local slot))
+    pure (LetJoin slot Boxed producer rest)
   M.Constructor _ _ _ -> throw (UnsupportedExpr "a bare constructor declaration is not an expression")
 
 -- | Lower a left-to-right list of operands to atoms, then continue.
@@ -569,7 +575,7 @@ lowerModules optimize fieldReps foreignSigs foreignNames roots modules = do
     reachable = reachableFunctions functions rootKeys
     toLower = Array.filter (\e -> Object.member e.key reachable) entries
   Tuple funcs st <- runStateT
-    (traverse (\e -> case DBGUnsafe.unsafePerformEffect (DBGConsole.error ("[lower] " <> e.key)) of _ -> lowerTopFunc info e.moduleName e.isRoot (Tuple e.ident e.expr)) toLower)
+    (traverse (\e -> lowerTopFunc info e.moduleName e.isRoot (Tuple e.ident e.expr)) toLower)
     { slot: 0, lifted: [], nextCode: 0 }
   let allFuncs = funcs <> st.lifted
   -- the marshal signature of each exported function (looked up by its qualified name
