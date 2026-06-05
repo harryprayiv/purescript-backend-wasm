@@ -1,0 +1,14 @@
+package:
+  name: examples-snapshots
+  dependencies:
+    - prelude
+    - arrays
+    - lists
+    - strings
+    - partial
+    - exists
+    - functions
+    - tuples
+    - maybe
+    - console
+    - effect

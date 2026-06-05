@@ -1,0 +1,9 @@
+package:
+  name: examples-metatheory
+  dependencies:
+    - console
+    - effect
+    - fmt
+    - ordered-collections
+    - prelude
+    - transformers
