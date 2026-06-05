@@ -94,6 +94,9 @@ export const eqrefFromJs = (E, k, val) => {
 // Wrap a JS foreign so its args/result marshal per `sig`. Top-level scalars (`i`/`f`)
 // are raw (a JS number = i32/f64), passed through; everything else is an eqref.
 const isRaw = (k) => k === "i" || k === "f";
+// PureScript FFI foreigns are curried (`a => b => c`); apply one arg at a time so a
+// multi-arg foreign is fully applied (`fn(...xs)` would pass only the first).
+const applyCurried = (fn, xs) => xs.reduce((g, x) => g(x), fn);
 const marshalWrap = (E, fn, sig) => (...args) => {
   const xs = args.map((a, i) => (isRaw(sig.params[i]) ? a : eqrefToJs(E, sig.params[i], a)));
   // an effectful foreign (`{eff:k}` result): applying the value args yields the Effect
@@ -101,13 +104,13 @@ const marshalWrap = (E, fn, sig) => (...args) => {
   // `k` (ADR 0015). A *nullary* Effect foreign (`Effect a`, no value args) IS the thunk, so
   // do not pre-call it. A Unit (undefined) result is boxed as 0 for a valid eqref.
   if (sig.result && sig.result.eff !== undefined) {
-    const thunk = xs.length === 0 ? fn : fn(...xs);
+    const thunk = applyCurried(fn, xs);
     const ran = thunk();
     const k = sig.result.eff;
     if (ran === undefined || ran === null) return E.boxInt(0);
     return isRaw(k) ? ran : eqrefFromJs(E, k, ran);
   }
-  const r = fn(...xs);
+  const r = applyCurried(fn, xs);
   return isRaw(sig.result) ? r : eqrefFromJs(E, sig.result, r);
 };
 

@@ -10,6 +10,9 @@ import Data.ArrayBuffer.Types (Uint8Array)
 import Data.Foldable (for_)
 import Data.Maybe (Maybe(..), isNothing, maybe)
 import Data.List.NonEmpty as NEL
+import Data.Map as Map
+import Data.Set (Set)
+import Data.Set as Set
 import Data.String (Pattern(..))
 import Data.String as Str
 import Data.Traversable (for)
@@ -53,6 +56,10 @@ foreign import importModulesImpl :: Uint8Array -> Effect (Array String)
 -- | Module name → its `.purs` source path, parsed from spago's `cache-db.json` (ADR
 -- | 0016). Paths are relative to the build's working directory (our cwd).
 foreign import cacheDbSourcesImpl :: String -> Object String
+
+-- | The dotted import module names of a `corefn.json` source, extracted cheaply (no
+-- | full decode), for file-level reachability pruning.
+foreign import corefnImportsImpl :: String -> Array String
 
 type BuildOption =
   { input :: FilePath
@@ -132,6 +139,20 @@ printModname = Str.joinWith "."
 entryRoot :: String -> ModuleName
 entryRoot = Str.split (Pattern ".")
 
+-- | The set of module names transitively reachable from `roots` through the (dotted)
+-- | import map — a fixpoint that only grows, so it terminates. Used to prune the input
+-- | dir to what the entry actually needs before decoding (the compiler prunes again at
+-- | the IR level, but this keeps the decode itself bounded).
+reachableClosure :: Array ModuleName -> Map.Map String (Array String) -> Set String
+reachableClosure roots importMap = go (Set.fromFoldable (map printModname roots))
+  where
+  go seen =
+    let
+      next = Set.fromFoldable (Array.fromFoldable seen >>= \n -> maybe [] identity (Map.lookup n importMap))
+      seen' = Set.union seen next
+    in
+      if Set.size seen' == Set.size seen then seen else go seen'
+
 main :: FilePath -> Effect Unit
 main _cliRoot =
   parseArgs >>= case _ of
@@ -150,8 +171,18 @@ buildCmd args = do
   -- `Prim` and the other built-in pseudo-modules have an output directory but no
   -- `corefn.json` (they are compiler intrinsics with no CoreFn); skip any module
   -- whose CoreFn artifact is absent rather than failing the whole build.
-  mods <- Array.filterA (\mod -> isNothing <$> FS.access (Path.concat [ args.input, printModname mod, "corefn.json" ])) named
-  Console.log (Fmt.fmt @"Linking {count} module(s) from {dir}" { count: Array.length mods, dir: args.input })
+  allMods <- Array.filterA (\mod -> isNothing <$> FS.access (Path.concat [ args.input, printModname mod, "corefn.json" ])) named
+  let roots = map entryRoot (Array.fromFoldable args.entryModules)
+  -- File-level reachability pruning (before the expensive full decode): a real app's
+  -- output dir holds far more modules than one entry needs, and decoding them all OOMs
+  -- the build. Read each module's imports cheaply (transient `JSON.parse`, GC'd), then
+  -- keep only the modules transitively reachable from the entry roots.
+  importPairs <- for allMods \mod -> do
+    source <- FS.readTextFile UTF8 (Path.concat [ args.input, printModname mod, "corefn.json" ])
+    pure (Tuple (printModname mod) (corefnImportsImpl source))
+  let reachable = reachableClosure roots (Map.fromFoldable importPairs)
+  let mods = Array.filter (\mod -> Set.member (printModname mod) reachable) allMods
+  Console.log (Fmt.fmt @"Linking {count} of {total} module(s) from {dir}" { count: Array.length mods, total: Array.length allMods, dir: args.input })
   modules <- for mods \mod -> do
     source <- FS.readTextFile UTF8 (Path.concat [ args.input, printModname mod, "corefn.json" ])
     case parseModule source of
@@ -189,7 +220,6 @@ buildCmd args = do
   -- fills the private foreigns externs omit (ADR 0016). Both keyed by `Module.ident`.
   let srcSigs = Array.foldl Object.union Object.empty srcSigsByMod
   let allSigs = Object.union externsSigs srcSigs
-  let roots = map entryRoot (Array.fromFoldable args.entryModules)
   let opts = { optimize: not args.debug, optimizeMir: not args.noOpt }
   -- `--trace-mir <Module>`: dump that module's MIR after every optimizer sub-stage to
   -- ./mir-trace.txt (debugging the optimizer; cf. purs-backend-es --trace-rewrites).
@@ -400,6 +430,10 @@ const eqrefFromJs = (k, val) => {
   return ref;
 };
 const isRaw = (k) => k === "i" || k === "f";
+// PureScript FFI foreigns are *curried* (`a => b => c`), so apply one argument at a
+// time — `fn(...xs)` would pass only the first to a curried foreign (a multi-arg
+// foreign like `unfoldrArrayImpl` would return a function, not its result).
+const applyCurried = (fn, xs) => xs.reduce((g, x) => g(x), fn);
 // import direction: wasm calls the JS foreign — args wasm→JS, result JS→wasm
 const wrap = (fn, sig) => (...args) => {
   const xs = args.map((a, i) => (isRaw(sig.params[i]) ? a : eqrefToJs(sig.params[i], a)));
@@ -408,13 +442,13 @@ const wrap = (fn, sig) => (...args) => {
   // result by `k` (ADR 0015). A *nullary* Effect foreign (`Effect a`, no value args, e.g.
   // `random`) IS the thunk, so we must not pre-call it. Unit (undefined) → boxed 0.
   if (sig.result && sig.result.eff !== undefined) {
-    const thunk = xs.length === 0 ? fn : fn(...xs);
+    const thunk = applyCurried(fn, xs);
     const ran = thunk();
     const k = sig.result.eff;
     if (ran === undefined || ran === null) return inst.exports.boxInt(0);
     return isRaw(k) ? ran : eqrefFromJs(k, ran);
   }
-  const r = fn(...xs);
+  const r = applyCurried(fn, xs);
   return isRaw(sig.result) ? r : eqrefFromJs(sig.result, r);
 };
 // export direction: JS calls the wasm export — args JS→wasm, result wasm→JS

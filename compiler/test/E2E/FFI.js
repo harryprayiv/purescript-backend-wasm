@@ -41,13 +41,14 @@ export const scalarImports = {
 };
 
 // Raw JS for the Closure fixture; the harness wraps each function-typed parameter as
-// a JS function over the wasm $Clo (apply via the runtime trampoline). The foreign's
-// own params are uncurried; a marshalled callback `f` is a one-argument JS function.
+// a JS function over the wasm $Clo (apply via the runtime trampoline). PureScript FFI
+// is curried, so multi-argument foreigns are written `a => b => …` (the marshalling
+// applies one argument at a time); a marshalled callback `f` is a one-argument JS function.
 export const closureImports = {
   "Example.FFIClosure": {
     addOne: (x) => x + 1,
-    applyTwice: (f, n) => f(f(n)),
-    applyTo: (f, x) => f(x),
-    sumMap: (f, xs) => xs.reduce((a, x) => a + f(x), 0),
+    applyTwice: (f) => (n) => f(f(n)),
+    applyTo: (f) => (x) => f(x),
+    sumMap: (f) => (xs) => xs.reduce((a, x) => a + f(x), 0),
   },
 };

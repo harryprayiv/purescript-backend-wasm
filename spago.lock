@@ -176,7 +176,9 @@
             "console",
             "effect",
             "fmt",
-            "prelude"
+            "ordered-collections",
+            "prelude",
+            "transformers"
           ]
         },
         "test": {

@@ -17,6 +17,19 @@ export const importModulesImpl = (bytes) => () => {
   return Array.from(set);
 };
 
+// The dotted import module names of a corefn.json, via a cheap transient `JSON.parse`
+// (the tree is GC'd, only the small import-name list is kept) — for file-level
+// reachability pruning before the expensive full decode. A real app's output dir holds
+// far more modules than one entry needs; decoding them all OOMs the build.
+export const corefnImportsImpl = (json) => {
+  try {
+    const j = JSON.parse(json);
+    return (j.imports || []).map((i) => i.moduleName.join("."));
+  } catch {
+    return [];
+  }
+};
+
 // Module name -> its `.purs` source path, parsed from spago's `cache-db.json` (ADR 0016).
 // Each entry maps source files (`.purs`/`.js`) to [timestamp, hash]; we take the `.purs`.
 // Paths are relative to the build's working directory. Returns a plain object (= Object).
