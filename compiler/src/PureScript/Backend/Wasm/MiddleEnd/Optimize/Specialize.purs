@@ -30,11 +30,14 @@ import Data.Foldable (foldl)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Set (Set)
+import Data.Set as Set
 import Data.String (joinWith)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), snd)
 import PureScript.Backend.Wasm.MiddleEnd.FreeVars (binderVars, freeVars)
 import PureScript.Backend.Wasm.MiddleEnd.IR as M
+import PureScript.Backend.Wasm.MiddleEnd.Optimize.Simplify (substMany)
 import PureScript.CoreFn (Literal(..), ModuleName, Qualified(..))
 
 -- | A top-level function that is a candidate callee: its parameter list, body, and
@@ -50,13 +53,19 @@ type FuncInfo =
 
 type SpecEntry = { modName :: ModuleName, ident :: String, expr :: M.Expr }
 
-type S = State { counter :: Int, specs :: Map String SpecEntry }
+-- | `existing` is the set of every top-level ident already in the program — including
+-- | specializations created in *previous* whole-program rounds, which persist as decls.
+-- | New spec names are chosen to avoid it (and each other), so a later round cannot
+-- | reuse an earlier round's `…$specN` name for a *different* specialization (a name
+-- | collision that bound references to the wrong spec — the Cps02 state-threading bug).
+type S = State { existing :: Set String, specs :: Map String SpecEntry }
 
 specializeProgram :: Array M.Module -> Array M.Module
 specializeProgram modules =
   let
     funcs = Map.fromFoldable (modules >>= moduleFuncs)
-    Tuple modules' st = runState (traverse (specModule funcs) modules) { counter: 0, specs: Map.empty }
+    existing = Set.fromFoldable (modules >>= \m -> m.decls >>= declIdents)
+    Tuple modules' st = runState (traverse (specModule funcs) modules) { existing, specs: Map.empty }
     specsOf mn = Array.mapMaybe (\e -> if e.modName == mn then Just (M.Rec [ { meta: Nothing, ident: e.ident, expr: e.expr } ]) else Nothing) (Map.values st.specs # Array.fromFoldable)
   in
     map (\m -> m { decls = m.decls <> specsOf m.name }) modules'
@@ -204,21 +213,38 @@ specializeCall funcs info k args = do
 
 createSpec :: Map String FuncInfo -> FuncInfo -> Int -> M.Expr -> Array String -> String -> S String
 createSpec funcs info k lam frees dedup = do
-  n <- gets _.counter
-  modify_ \s -> s { counter = s.counter + 1 }
-  let specIdent = info.ident <> "$spec" <> show n
+  specIdent <- freshSpecIdent (info.ident <> "$spec")
   let pk = fromMaybe "" (Array.index info.params k)
   let restParams = removeAt k info.params
   -- inside the spec the lambda's free vars are the leading parameters; the static
-  -- parameter is replaced by the lambda, and self-calls go to the specialization
+  -- parameter is replaced by the lambda, and self-calls go to the specialization.
+  -- Capture-avoiding substitution is required: the lambda's free vars (e.g. `put`'s
+  -- argument `s`) must not be captured by a binder of the same name in the callee body
+  -- (`mkState`'s state param `s`) — that capture silently mis-threaded the State monad.
   let specName = Qualified (Just info.modName) specIdent
-  let rewritten = substVar pk lam (rewriteSelfCalls (key info.modName info.ident) specName k frees info.body)
+  let rewritten = substMany (Map.singleton pk lam) (rewriteSelfCalls (key info.modName info.ident) specName k frees info.body)
   -- register first (so a self-call inside resolves to this spec), then specialize
   -- nested higher-order calls in the body
   modify_ \s -> s { specs = Map.insert dedup { modName: info.modName, ident: specIdent, expr: M.Abs (frees <> restParams) rewritten } s.specs }
   body' <- specExpr funcs rewritten
   modify_ \s -> s { specs = Map.insert dedup { modName: info.modName, ident: specIdent, expr: M.Abs (frees <> restParams) body' } s.specs }
   pure specIdent
+
+-- | A spec ident `<base><i>` for the smallest `i` not already in the program (across
+-- | rounds) nor reserved this round; reserve it so the next call skips it.
+freshSpecIdent :: String -> S String
+freshSpecIdent base = do
+  ex <- gets _.existing
+  let
+    go i = let cand = base <> show i in if Set.member cand ex then go (i + 1) else cand
+    name = go 0
+  modify_ \s -> s { existing = Set.insert name s.existing }
+  pure name
+
+declIdents :: M.Bind -> Array String
+declIdents = case _ of
+  M.NonRec _ i _ -> [ i ]
+  M.Rec rs -> map _.ident rs
 
 -- rewrite every self-call `f(… pk …)` to `f$spec(frees…, … without pk …)`
 rewriteSelfCalls :: String -> Qualified String -> Int -> Array String -> M.Expr -> M.Expr
