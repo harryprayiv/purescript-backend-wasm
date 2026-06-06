@@ -16,11 +16,6 @@ module PureScript.Backend.Wasm.Codegen.Imports
   , strCmpHelperName
   , strConcatHelperName
   , arrayConcatHelperName
-  , arrayEqHelperName
-  , arrayOrdHelperName
-  , arrayMapHelperName
-  , arrayApplyHelperName
-  , arrayBindHelperName
   , intModHelperName
   , intDivHelperName
   , intDegreeHelperName
@@ -63,11 +58,6 @@ importRuntime ctx = do
   imp strCmpHelperName "strCmp" [ B.eqref, B.eqref ] B.i32
   imp strConcatHelperName "strConcat" [ B.eqref, B.eqref ] B.eqref
   imp arrayConcatHelperName "arrayConcat" [ B.eqref, B.eqref ] B.eqref
-  imp arrayEqHelperName "arrayEq" [ B.eqref, B.eqref, B.eqref ] B.i32
-  imp arrayOrdHelperName "arrayOrd" [ B.eqref, B.eqref, B.eqref ] B.i32
-  imp arrayMapHelperName "arrayMap" [ B.eqref, B.eqref ] B.eqref
-  imp arrayApplyHelperName "arrayApply" [ B.eqref, B.eqref ] B.eqref
-  imp arrayBindHelperName "arrayBind" [ B.eqref, B.eqref ] B.eqref
   imp intModHelperName "intMod" [ B.i32, B.i32 ] B.i32
   imp intDivHelperName "intDiv" [ B.i32, B.i32 ] B.i32
   imp intDegreeHelperName "intDegree" [ B.i32 ] B.i32
@@ -127,23 +117,6 @@ strConcatHelperName = "$rt.strConcat"
 -- | The shared array concatenation helper.
 arrayConcatHelperName :: String
 arrayConcatHelperName = "$rt.arrayConcat"
-
--- | The shared higher-order `Array` equality / comparison helpers.
-arrayEqHelperName :: String
-arrayEqHelperName = "$rt.arrayEq"
-
-arrayOrdHelperName :: String
-arrayOrdHelperName = "$rt.arrayOrd"
-
--- | The shared higher-order `Array` `Functor`/`Apply`/`Bind` helpers.
-arrayMapHelperName :: String
-arrayMapHelperName = "$rt.arrayMap"
-
-arrayApplyHelperName :: String
-arrayApplyHelperName = "$rt.arrayApply"
-
-arrayBindHelperName :: String
-arrayBindHelperName = "$rt.arrayBind"
 
 -- | The shared Euclidean `Int` division/remainder/degree helpers.
 intModHelperName :: String

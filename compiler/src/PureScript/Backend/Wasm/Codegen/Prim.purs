@@ -17,7 +17,7 @@ import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Exception (error, throwException)
-import PureScript.Backend.Wasm.Codegen.Imports (applyCloHelperName, arrayApplyHelperName, arrayBindHelperName, arrayConcatHelperName, arrayEqHelperName, arrayMapHelperName, arrayOrdHelperName, counterGlobalName, forEHelperName, foreachEHelperName, intDegreeHelperName, intDivHelperName, intModHelperName, internStrName, projHelperName, recDeleteHelperName, recHasHelperName, recSetHelperName, refModifyHelperName, refNewHelperName, refNewWithSelfHelperName, refReadHelperName, refWriteHelperName, strCmpHelperName, strConcatHelperName, strEqHelperName, untilEHelperName, whileEHelperName)
+import PureScript.Backend.Wasm.Codegen.Imports (applyCloHelperName, arrayConcatHelperName, counterGlobalName, forEHelperName, foreachEHelperName, intDegreeHelperName, intDivHelperName, intModHelperName, internStrName, projHelperName, recDeleteHelperName, recHasHelperName, recSetHelperName, refModifyHelperName, refNewHelperName, refNewWithSelfHelperName, refReadHelperName, refWriteHelperName, strCmpHelperName, strConcatHelperName, strEqHelperName, untilEHelperName, whileEHelperName)
 import PureScript.Backend.Wasm.Codegen.RuntimeTypes (Ctx)
 import PureScript.Backend.Wasm.Codegen.Value (boxInt, genAtom, genAtomAs, strBytes, unboxBoolExpr)
 import PureScript.Backend.Wasm.Lower.IR (Atom(..), Rep(..))
@@ -51,23 +51,6 @@ genPrim ctx intr args = case intr, args of
       lt
       eq
       gt
-  -- Array equality / comparison: delegate to the higher-order runtime helpers,
-  -- which apply the element closure per element.
-  ArrayEq, [ f, xs, ys ] -> do
-    ef <- genAtomAs ctx Boxed f
-    exs <- genAtomAs ctx Boxed xs
-    eys <- genAtomAs ctx Boxed ys
-    B.call ctx.mod arrayEqHelperName [ ef, exs, eys ] B.i32 >>= B.i31New ctx.mod
-  ArrayOrd, [ f, xs, ys ] -> do
-    ef <- genAtomAs ctx Boxed f
-    exs <- genAtomAs ctx Boxed xs
-    eys <- genAtomAs ctx Boxed ys
-    B.call ctx.mod arrayOrdHelperName [ ef, exs, eys ] B.i32
-  -- Array Functor / Apply / Bind: the higher-order helpers build a new `$Vals`
-  -- (already an `eqref`, so no boxing). Operand order matches the foreign.
-  ArrayMap, [ f, xs ] -> arrayHof arrayMapHelperName f xs
-  ArrayApply, [ fs, xs ] -> arrayHof arrayApplyHelperName fs xs
-  ArrayBind, [ xs, f ] -> arrayHof arrayBindHelperName xs f
   -- Euclidean Int division/remainder/degree: unbox, delegate to the shared
   -- runtime helpers (zero guard + non-negative remainder).
   IntDiv, [ a, b ] -> intCall2 intDivHelperName a b
@@ -269,11 +252,6 @@ genPrim ctx intr args = case intr, args of
     ea <- intArg a
     eb <- intArg b
     B.call ctx.mod name [ ea, eb ] B.i32
-  -- a binary higher-order array helper: two `eqref` operands → an `eqref` result.
-  arrayHof name a b = do
-    ea <- genAtomAs ctx Boxed a
-    eb <- genAtomAs ctx Boxed b
-    B.call ctx.mod name [ ea, eb ] B.eqref
   boolBinop op a b = do
     ea <- boolArg a
     eb <- boolArg b

@@ -24,7 +24,6 @@ primRep = case _ of
   IntDegree -> I32
   NumToInt -> I32
   StrLen -> I32
-  ArrayOrd -> I32
   ArrayLength -> I32
   TopInt -> I32
   BottomInt -> I32
