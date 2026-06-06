@@ -2,8 +2,10 @@
 -- | `purs compile --codegen corefn` (verified against compiler 0.15.16).
 -- |
 -- | This is the functional-core IR the backend consumes: desugared, fully
--- | qualified, but not yet optimized. Source positions are kept only where the
--- | backend needs them; local-variable provenance (`sourcePos`) is dropped.
+-- | qualified, but not yet optimized. Every node carries a source span via
+-- | `Ann`; only a local reference's binding-site provenance (the `sourcePos`
+-- | qualifier on a `Var`) is dropped — `Qualified` keeps just the optional
+-- | module name.
 module PureScript.CoreFn where
 
 import Prelude
@@ -100,8 +102,9 @@ data Expr
   | Constructor Ann ProperName ProperName (Array Ident)
   -- | `Accessor ann fieldName record`
   | Accessor Ann String Expr
-  -- | `ObjectUpdate ann record copyFields updates`; `copyFields` is the
-  -- | `Just` list of untouched labels for a polymorphic record update.
+  -- | `ObjectUpdate ann record copyFields updates`; `copyFields` is `Just` the
+  -- | untouched labels for a monomorphic (closed-record) update, and `Nothing`
+  -- | for a polymorphic (open-row) update.
   | ObjectUpdate Ann Expr (Maybe (Array String)) (Array (Tuple String Expr))
   -- | `Abs ann argument body`
   | Abs Ann Ident Expr
