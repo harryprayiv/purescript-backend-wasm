@@ -73,7 +73,15 @@ runImpure ctx = case _ of
   -- performing an applied / bare effect-producer: effectful iff the producer is, plus
   -- any effects from constructing the arguments
   M.App (M.Var q) args -> headImpure ctx q || any (evalImpure ctx) args
-  M.App f args -> runImpure ctx f || any (evalImpure ctx) args
+  -- performing an application whose head is a *lambda/let redex* (not a bare producer):
+  -- impurify can leave such a redex un-reduced (e.g. `void`/`map`-over-`Effect` becomes
+  -- `(λf a. bindE …)(pureE k, modify …)`), and the head reads as a pure value while an
+  -- *argument* (`modify …`) is the effect that the lambda performs. Reducing the redex would
+  -- expose it, but the syntactic check does not β-reduce; so also treat the app as effectful
+  -- when an argument is effectful-to-perform. Over-approximates (an ignored effectful arg is
+  -- kept), which is sound — it never drops a real effect (ADR 0019). `App (Var …)` keeps the
+  -- precise head-driven rule above, so pure-`Effect`/State collapse is unaffected.
+  M.App f args -> runImpure ctx f || any (evalImpure ctx) args || any (runImpure ctx) args
   M.Var q -> headImpure ctx q
   M.Let bs body -> any (evalImpure ctx) (bs >>= bindExprs) || runImpure ctx body
   M.Case ss alts -> any (evalImpure ctx) ss || any (any (runImpure ctx) <<< altExprs) alts
