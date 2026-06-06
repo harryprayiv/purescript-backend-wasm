@@ -80,6 +80,37 @@ Build / link:
 3. **Manifest-driven mapping.** Replace the hardcoded runtime-call entries of the
    intrinsics table with the manifest, keeping only the inline table.
 
+## Concretisation (2026-06-06)
+
+The first implementation pass, refining the above:
+
+- **Provider ladder (resolution order):** inline-intrinsics (compiler) → **`ulib/<Module>/`**
+  → project-local `<input>/<Module>/foreign.{wasm,wat}` → `foreign.js` (loader) → trap. A
+  project-local provider **overrides** `ulib` (same module name), so a program can ship its own
+  FFI for a curated module; in practice the namespaces rarely collide.
+- **Layout:** `ulib/<Module.Name>/foreign.wat`, assembled to `.wasm` at build time and merged
+  by `wasm-merge` under the module name (the same mechanism as a project-local `foreign.wat`).
+  Each `ulib` wat declares the shared GC value types (`$Vals`/`$Str`/`$Int`/…) identically to
+  the runtime so `wasm-merge` canonicalises them (proven: app ↔ runtime already share types
+  this way), and `(import "rt" …)`s the runtime-core helpers it needs (`applyClo`/`boxInt`/
+  `strNew`/…). Each foreign is `(export "<baseName>" …)` at the **internal ABI** (`eqref`/`i32`/
+  `f64`) — no marshalling glue, since it is merged, not loaded.
+- **Signatures: the wasm export is the source of truth.** Several library `*Impl` foreigns are
+  polymorphic enough that the externs/source-reconstruction yields no usable arity (they fall to
+  the ADR 0016 nullary-opaque fallback → a 0-param host import). So `bin`, before compiling,
+  reads the chosen `ulib` module's **export signatures** (param/result wasm types) and synthesises
+  a `ForeignSig` per export (`eqref → MOpaque`, `i32 → MI32`, `f64 → MF64` — `marshalRep` of these
+  reproduces the exact wasm types). These ulib sigs feed `allSigs` so the compiler emits a
+  correctly-typed host import that the merge resolves. This keeps "drop a `.wat` into
+  `ulib/<Module>/`" as the only authoring step — no hand-maintained manifest that could drift.
+  (The `.wat` is parsed for its inline-export `(func (export "n") (param …) (result …))` shapes;
+  `.wat → .wasm` is 1:1 so this is the wasm export signature.)
+- **Slicing realised:** vertical slice one module (`Data.Array`) end-to-end first (move its
+  helpers out of `runtime.wat` into `ulib/Data.Array/`, add the bin's ulib rung + sig reading),
+  prove it, then relocate `Data.Foldable` / `Data.String.CodeUnits` / `Data.Int`, then empty the
+  staged "batch 0" out of `runtime.wat`. Acceptance per slice: unit / e2e / metatheory-on-wasm
+  stay green.
+
 ## Consequences
 
 - Aligns with PureScript's minimal-compiler ethos: the compiler stops *being* the

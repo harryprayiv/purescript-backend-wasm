@@ -273,14 +273,16 @@ buildCmd args = do
   where
   -- Resolved against the current working directory (run `bin` from the repo root).
   runtimeWasm = "runtime/runtime.wasm"
+  ulibDir = "ulib"
   wasmMergeBin = "binaryen/node_modules/binaryen/bin/wasm-merge"
   wasmDisBin = "binaryen/node_modules/binaryen/bin/wasm-dis"
   wasmAsBin = "binaryen/node_modules/binaryen/bin/wasm-as"
 
-  -- The foreign provider for a module (ADR 0014): a `foreign.wasm` (used directly)
-  -- or `foreign.wat` (assembled to a temp `.wasm` in the bundle) is the in-wasm
-  -- provider that gets merged; otherwise `wasm` is `Nothing` and it falls back to
-  -- the JS loader.
+  -- The foreign provider for a module (ADR 0014 / 0012). Resolution order: a project-local
+  -- `foreign.wasm` (used directly) / `foreign.wat` (assembled), then the curated
+  -- `ulib/<Module>/foreign.wat` (assembled), both merged as the in-wasm provider that speaks
+  -- the internal ABI; otherwise `wasm` is `Nothing` and it falls back to the JS loader.
+  -- A project-local provider wins over `ulib` (a program can override a curated module).
   resolveForeign input bundleDir m = do
     let wasmSrc = Path.concat [ input, m, "foreign.wasm" ]
     hasWasm <- exists wasmSrc
@@ -288,13 +290,22 @@ buildCmd args = do
     else do
       let watSrc = Path.concat [ input, m, "foreign.wat" ]
       hasWat <- exists watSrc
-      if hasWat then do
-        let out = Path.concat [ bundleDir, m <> ".foreign.wasm" ]
-        execFile wasmAsBin [ watSrc, "-o", out, "--all-features" ]
-        pure { name: m, wasm: Just out, assembled: true }
-      else pure { name: m, wasm: Nothing, assembled: false }
+      if hasWat then assemble watSrc
+      else do
+        let ulibWat = Path.concat [ ulibDir, m, "foreign.wat" ]
+        hasUlibWat <- exists ulibWat
+        if hasUlibWat then assemble ulibWat
+        else do
+          let ulibWasm = Path.concat [ ulibDir, m, "foreign.wasm" ]
+          hasUlibWasm <- exists ulibWasm
+          if hasUlibWasm then pure { name: m, wasm: Just ulibWasm, assembled: false }
+          else pure { name: m, wasm: Nothing, assembled: false }
     where
     exists p = isNothing <$> FS.access p
+    assemble watSrc = do
+      let out = Path.concat [ bundleDir, m <> ".foreign.wasm" ]
+      execFile wasmAsBin [ watSrc, "-o", out, "--all-features" ]
+      pure { name: m, wasm: Just out, assembled: true }
 
 -- | Emit the JS loader for a program that has host imports (ADR 0014): copy each
 -- | used module's `foreign.js` into `<bundle>/foreign/<Module>.js`, then write a

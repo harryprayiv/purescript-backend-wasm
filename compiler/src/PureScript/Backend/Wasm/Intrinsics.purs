@@ -286,7 +286,7 @@ qualifiedIntrinsic = case _ of
   "Data.Array.unsafeIndexImpl" -> Just (Tuple ArrayIndex 2)
   -- library array/foldable FFIs implemented natively in the runtime (ulib batch 0)
   "Data.Array.length" -> Just (Tuple ArrayLength 1)
-  "Data.Array.reverse" -> Just (Tuple ArrayReverse 1)
+  -- Data.Array.reverse now lives in `ulib/Data.Array/foreign.wat` (ADR 0012 slice 1)
   "Data.Array.sliceImpl" -> Just (Tuple ArraySlice 3)
   "Data.Array.indexImpl" -> Just (Tuple ArrayIndexSafe 4)
   "Data.Array.unconsImpl" -> Just (Tuple ArrayUncons 3)
