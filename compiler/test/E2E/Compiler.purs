@@ -21,6 +21,7 @@ import Test.E2E.PreludeCompare as PreludeCompare
 import Test.E2E.PreludeBool as PreludeBool
 import Test.E2E.PreludeNumber as PreludeNumber
 import Test.E2E.PreludeEuclid as PreludeEuclid
+import Test.E2E.EffectPrim as EffectPrim
 import Test.E2E.PreludeField as PreludeField
 import Test.E2E.PreludeBounded as PreludeBounded
 import Test.E2E.PreludeSemigroup as PreludeSemigroup
@@ -66,6 +67,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   PreludeBool.spec
   PreludeNumber.spec
   PreludeEuclid.spec
+  EffectPrim.spec
   PreludeField.spec
   PreludeBounded.spec
   PreludeSemigroup.spec

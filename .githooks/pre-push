@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Pre-push gate: run the full test suite before any push.
+#
+# Post-mortem (2026-06-07): an Effect-primitive regression (forE/foreachE/whileE/untilE,
+# void/map-over-Effect, native Ref modify) rode along on RED CI for ~10 commits. The catching
+# guards (`test:bin` → effectPrim/refNative, both hard-fail) existed and ran in CI, but the
+# fast local loop (`test:e2e`/`test:unit`) has no Effect coverage, so local dev showed green
+# and the out-of-band CI red was tolerated during a large optimizer rearchitecture. This hook
+# makes "all tests pass" a precondition of every push, so the same degradation can never leave
+# the machine unnoticed.
+#
+# Mirrors CI (.github/workflows/ci.yaml): per target, compile → test → check.
+# Run from inside `nix develop` (the toolchain env). Emergency bypass: `git push --no-verify`.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "[pre-push] pnpm not found — run your push from inside 'nix develop'." >&2
+  exit 1
+fi
+
+for target in compiler binaryen; do
+  echo "[pre-push] $target: compile → test → check"
+  pnpm -F "$target" run compile
+  pnpm -F "$target" run test
+  pnpm -F "$target" run check
+done
+
+echo "[pre-push] ✓ all green — pushing."
