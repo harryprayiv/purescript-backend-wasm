@@ -278,6 +278,9 @@ export const addFunctionExportImpl =
   (mod) => (internalName) => (externalName) => () =>
     mod.addFunctionExport(internalName, externalName);
 
+// Set the module's start function (run automatically at instantiation).
+export const setStartImpl = (mod) => (fn) => () => mod.setStart(fn);
+
 export const addFunctionImportImpl =
   (mod) => (internalName) => (externalModule) => (externalBase) => (params) => (results) => () =>
     mod.addFunctionImport(internalName, externalModule, externalBase, params, results);
