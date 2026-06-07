@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# commit-msg hook: enforce the commit subject convention.
+#
+#   [<Category>] <scope>: <summary>
+#     Category: Feature | Bugfix | Refactor | Chore | Docs | Test | Perf | CI
+#     scope:    ADR-XXXX | subsystem (e.g. ulib, Frontend) | docs
+#     e.g.      [Bugfix] ADR-0019: keep voided effects from being dropped
+#
+# Merge / Revert / autosquash (fixup!|squash!|amend!) subjects are exempt.
+# Bypass once with: git commit --no-verify
+set -euo pipefail
+
+msg_file="$1"
+# First non-empty, non-comment line is the subject.
+subject="$(grep -m1 -vE '^[[:space:]]*(#|$)' "$msg_file" || true)"
+
+case "$subject" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
+esac
+
+if [[ "$subject" =~ ^\[(Feature|Bugfix|Refactor|Chore|Docs|Test|Perf|CI)\]\ [^:]+:\ .+ ]]; then
+  exit 0
+fi
+
+cat >&2 <<EOF
+[commit-msg] ✗ subject does not match the project convention:
+
+    ${subject}
+
+Expected:  [<Category>] <scope>: <summary>
+  Category: Feature | Bugfix | Refactor | Chore | Docs | Test | Perf | CI
+  scope:    ADR-XXXX | subsystem (e.g. ulib, Frontend) | docs
+  e.g.      [Bugfix] ADR-0019: keep voided effects from being dropped
+
+Bypass once with: git commit --no-verify
+EOF
+exit 1

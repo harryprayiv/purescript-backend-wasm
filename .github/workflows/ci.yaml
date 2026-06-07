@@ -1,16 +1,15 @@
 name: CI
 
+# The workflow always triggers (no top-level `paths-ignore`) so that the required
+# `ci-gate` status check is *always* produced — otherwise a docs-only PR would skip the
+# workflow, never report `ci-gate`, and branch protection would leave the PR unmergeable.
+# The expensive Nix matrix is gated on whether non-docs files actually changed, so a
+# docs-only change still skips the heavy build but the gate goes green.
 on:
   push:
     branches:
       - "**"
-    paths-ignore:
-      - "README.md"
-      - "docs/**/*.md"
   pull_request:
-    paths-ignore:
-      - "README.md"
-      - "docs/**/*.md"
 
 # Cancel a superseded run when new commits land on the same ref.
 concurrency:
@@ -18,7 +17,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decide whether the heavy build needs to run: true iff something other than docs /
+  # README changed.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!README.md'
+              - '!docs/**'
+
   ci:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -50,3 +68,20 @@ jobs:
 
       - name: Check
         run: pnpm -F './${{ matrix.target }}' run check
+
+  # The single required status check. Always runs; green when the matrix passed OR was
+  # skipped (docs-only), red when any matrix leg failed or was cancelled. Point branch
+  # protection at THIS job (`ci-gate`), not the matrix legs.
+  ci-gate:
+    needs: [ci]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate on the matrix result
+        run: |
+          result='${{ needs.ci.result }}'
+          if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+            echo "::error::CI matrix did not pass (result: $result)"
+            exit 1
+          fi
+          echo "CI gate green (matrix result: $result)"
