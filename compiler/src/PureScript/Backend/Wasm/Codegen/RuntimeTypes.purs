@@ -102,7 +102,7 @@ buildRuntimeTypes _ = do
   -- $Rec = (struct (ref $LabelIds) (ref $Vals)) — parallel label-id / value arrays
   B.typeBuilderSetStructType tb 5 [ { ty: refLabelIdsTmp, mutable: false }, { ty: refValsTmp, mutable: false } ]
   B.typeBuilderSetStructType tb 6 [ { ty: B.f64, mutable: false } ] -- $Num = (struct f64)
-  B.typeBuilderSetArrayType tb 7 B.i32 true -- $Bytes = (array (mut i8)); built with i32 operands
+  B.typeBuilderSetArrayType tb 7 B.i32 true -- $Bytes = (array (mut i32)); one UTF-8 byte per i32 lane (not packed)
   refBytesTmp <- B.typeBuilderGetTempHeapType tb 7 >>= \h -> B.typeBuilderGetTempRefType tb h false
   B.typeBuilderSetStructType tb 8 [ { ty: refBytesTmp, mutable: false } ] -- $Str = (struct (ref $Bytes))
   main <- B.typeBuilderBuildAndDispose tb 9

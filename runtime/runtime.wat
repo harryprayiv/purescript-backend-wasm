@@ -25,9 +25,11 @@
   (type $Ref (struct (field (mut eqref))))                          ;; Effect.Ref / ST.STRef: a single mutable cell (ADR 0017)
 
   ;; $rt.proj(rec, target) -> eqref : linear-search the record's interned label-id
-  ;; array for `target`, returning the parallel value (ADR 0007). Records are never
-  ;; empty, so the first read needs no bound check; exhausting the array traps (the
-  ;; label was absent — a compile-time impossibility).
+  ;; array for `target`, returning the parallel value (ADR 0007). A projected record
+  ;; always contains the looked-up field, so the first read needs no bound check (empty
+  ;; records exist only via `recEmpty` on the FFI path — ADR 0014 — and `proj` is never
+  ;; applied to them); exhausting the array traps (the label was absent — a compile-time
+  ;; impossibility).
   (func $rt.proj (export "proj") (param $rec eqref) (param $target i32) (result eqref)
     (local $r (ref $Rec))
     (local $i i32)
