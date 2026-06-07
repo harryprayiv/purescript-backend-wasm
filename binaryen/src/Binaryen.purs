@@ -57,6 +57,7 @@ module Binaryen
   , addFunction
   , addFunctionExport
   , addFunctionImport
+  , setStart
   , addGlobal
   , globalGet
   , globalSet
@@ -508,6 +509,13 @@ foreign import addFunctionExportImpl :: Module -> String -> String -> Effect Exp
 -- | Export an internal function under an external name.
 addFunctionExport :: Module -> String -> String -> Effect Export
 addFunctionExport = addFunctionExportImpl
+
+foreign import setStartImpl :: Module -> Function -> Effect Unit
+
+-- | Set the module's start function — run automatically once at instantiation
+-- | (used to initialise CAF globals before any export runs; ADR 0006).
+setStart :: Module -> Function -> Effect Unit
+setStart = setStartImpl
 
 foreign import addFunctionImportImpl :: Module -> String -> String -> String -> Type -> Type -> Effect Unit
 
