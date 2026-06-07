@@ -13,7 +13,7 @@ purs (0.15.16)
   ▼
 [2] translate ──────▶ MIR  (uncurried middle IR)
   ▼
-[3] optimize ───────▶ MIR  (whole-program: lambda lift → specialize / dict-elim / inline, to a fixed point)
+[3] optimize ───────▶ MIR  (lambda lift → specialize → per-module simplify/dict-elim/inline/impurify, in dependency order)
   ▼
 [4] lower ──────────▶ backend IR  (representation analysis & unboxing, closure/apply lowering, foreign resolution, reachability DCE)
   ▼
@@ -64,12 +64,14 @@ boundary of the "front" — no optimization happens here.
 
 ## 3. Optimize
 
-`MiddleEnd.optimizeProgram` runs the optimization passes **whole-program** (a function
-or dictionary used in one module is defined in another, so the passes see all linked
-modules at once) and to a **fixed point**: lambda lifting, then rounds of higher-order
-specialization and dictionary-elimination/inlining simplification until the program
-stops changing. The output is still MIR. See [Optimizations](./optimizations.md) for the
-individual transformations.
+`MiddleEnd.optimizeProgram` builds its optimization context **whole-program** (a function
+or dictionary used in one module is defined in another, so the inline / dictionary /
+purity sets are gathered across all linked modules), but optimizes the modules **one at a
+time in dependency order** (ADR 0021), not in repeated whole-program rounds: lambda
+lifting (per module), then higher-order specialization (once, whole-program), then — for
+each module, against its already-finalized dependencies — simplify (dictionary
+elimination + inlining), impurify (the `Effect` rewrite), and simplify again. The output
+is still MIR. See [Optimizations](./optimizations.md) for the individual transformations.
 
 ## 4. Lower to the backend IR
 
@@ -82,8 +84,11 @@ generator consumes directly). This stage decides the *physical* shape of the pro
 - **Closure / application lowering** — closures become `$Clo` construction and arity-1
   `call_ref` application; a saturated call to a known top-level function is a direct
   call (lambda lifting in stage 3 already floated capturing/recursive closures out).
-- **Foreign resolution** — a `foreign import` becomes a host-import call carrying its
-  marshalling signature (the first rung of the [provider ladder](./interop.md)).
+- **Foreign resolution** — a `foreign import` that maps to a built-in **intrinsic** is
+  lowered inline (rung 1 of the [provider ladder](./interop.md) — `intAdd` and friends);
+  any other becomes an import call (`RCallForeign`) carrying its marshalling signature,
+  to be satisfied at link time (stage 6) by a wasm/wat provider (rung 2) or the JS loader
+  (rung 3).
 - **Reachability pruning (DCE)** — only functions reachable from the entry module's
   exports are lowered, tree-shaking the dictionaries and helpers optimization made dead
   (ADR 0009).
@@ -104,8 +109,11 @@ emitted as a binary (or disassembled to WAT with `--text`).
 > **Note — stopgap.** This final stage (how modules are loaded and linked, and how the
 > shared runtime is integrated) is a provisional implementation; a proper one is about
 > to be built. Treat the specifics below as the *current* mechanism, not the intended
-> design. (Today the CLI loads the whole `output/` directory and all module ASTs up
-> front rather than demand-driven, and the runtime is stitched in with `wasm-merge`.)
+> design. (Today the CLI enumerates the whole `output/` directory but, before the
+> expensive decode, prunes to the modules reachable from the entry roots — reading each
+> module's imports cheaply and full-decoding only the reachable set — and stitches the
+> runtime in with `wasm-merge`. Demand-driven / streaming codegen — ADR 0021 — is the
+> part still to come.)
 
 The generated module imports the **shared runtime** (`$rt.*` helpers and the value
 types, hand-written in `runtime/runtime.wat`; ADR 0010). To produce something runnable
