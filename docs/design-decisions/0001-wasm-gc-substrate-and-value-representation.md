@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-05-31
 
-> **Correction (2026-06-07):** The ADT value representation was later superseded by **[ADR 0013](0013-int-number-unboxing.md)**. ADTs are no longer the closed `$ADT = (struct i32 (ref $Vals))` of this record, but an **open base `$Data = (struct i32)` plus per-signature subtypes `$Data_<sig>` (scalar fields unboxed)**. The `$ADT` type is unused by current code (only declared in `Codegen/RuntimeTypes`). The rest of this record (the wasm-GC substrate, eqref, `$Int`/`$Num`/`$Str`/`$Clo`, …) still holds.
+> **Correction (2026-06-07):** The ADT value representation was later superseded by **[ADR 0013](0013-int-number-unboxing.md)**. ADTs are no longer the closed `$ADT = (struct i32 (ref $Vals))` of this record, but an **open base `$Data = (struct i32)` plus per-signature subtypes `$Data_<sig>` (scalar fields unboxed)**. The dead `$ADT` type has since been removed from `Codegen/RuntimeTypes` (it was unused; each value type is emitted as an independent singleton rec group, so dropping it is behaviour-neutral). The rest of this record (the wasm-GC substrate, eqref, `$Int`/`$Num`/`$Str`/`$Clo`, …) still holds.
 
 ## Context
 

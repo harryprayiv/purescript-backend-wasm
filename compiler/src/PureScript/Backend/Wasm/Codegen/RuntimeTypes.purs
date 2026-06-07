@@ -33,7 +33,6 @@ type Sig = { params :: Array Rep, result :: Rep }
 type RuntimeTypes =
   { intHt :: B.HeapType
   , valsHt :: B.HeapType
-  , adtHt :: B.HeapType
   , cloHt :: B.HeapType
   , labelIdsHt :: B.HeapType
   , recHt :: B.HeapType
@@ -43,7 +42,6 @@ type RuntimeTypes =
   , codeHt :: B.HeapType
   , refInt :: B.Type
   , refVals :: B.Type
-  , refAdt :: B.Type
   , refClo :: B.Type
   , refLabelIds :: B.Type
   , refRec :: B.Type
@@ -84,30 +82,29 @@ type Ctx =
   , dataStructs :: Map (Array Rep) DataStruct
   }
 
--- | Build the value type group (`$Vals` / `$Int` / `$ADT` / `$Clo`) and, in a
+-- | Build the value types (`$Vals` / `$Int` / `$Clo` / `$Rec` / `$Str` / …) and, in a
 -- | separate recursion group, the closure code signature `$Code`. `$Clo` holds
 -- | its code as a generic `funcref` (not `(ref $Code)`), which keeps `$Code` out
 -- | of `$Clo`'s recursion group so a lifted function's structurally-equal type
 -- | matches `$Code` for `call_ref`.
 buildRuntimeTypes :: B.Module -> Effect RuntimeTypes
 buildRuntimeTypes _ = do
-  tb <- B.typeBuilderCreate 9
+  tb <- B.typeBuilderCreate 8
   B.typeBuilderSetArrayType tb 0 B.eqref true -- $Vals = (array (mut eqref))
   B.typeBuilderSetStructType tb 1 [ { ty: B.i32, mutable: false } ] -- $Int (also $Char)
   refValsTmp <- B.typeBuilderGetTempHeapType tb 0 >>= \h -> B.typeBuilderGetTempRefType tb h false
-  B.typeBuilderSetStructType tb 2 [ { ty: B.i32, mutable: false }, { ty: refValsTmp, mutable: false } ] -- $ADT
-  B.typeBuilderSetStructType tb 3 [ { ty: B.funcref, mutable: false }, { ty: refValsTmp, mutable: false } ] -- $Clo
-  B.typeBuilderSetArrayType tb 4 B.i32 true -- $LabelIds = (array (mut i32)); mut so recSet/recDelete can rebuild it
-  refLabelIdsTmp <- B.typeBuilderGetTempHeapType tb 4 >>= \h -> B.typeBuilderGetTempRefType tb h false
+  B.typeBuilderSetStructType tb 2 [ { ty: B.funcref, mutable: false }, { ty: refValsTmp, mutable: false } ] -- $Clo
+  B.typeBuilderSetArrayType tb 3 B.i32 true -- $LabelIds = (array (mut i32)); mut so recSet/recDelete can rebuild it
+  refLabelIdsTmp <- B.typeBuilderGetTempHeapType tb 3 >>= \h -> B.typeBuilderGetTempRefType tb h false
   -- $Rec = (struct (ref $LabelIds) (ref $Vals)) — parallel label-id / value arrays
-  B.typeBuilderSetStructType tb 5 [ { ty: refLabelIdsTmp, mutable: false }, { ty: refValsTmp, mutable: false } ]
-  B.typeBuilderSetStructType tb 6 [ { ty: B.f64, mutable: false } ] -- $Num = (struct f64)
-  B.typeBuilderSetArrayType tb 7 B.i32 true -- $Bytes = (array (mut i32)); one UTF-8 byte per i32 lane (not packed)
-  refBytesTmp <- B.typeBuilderGetTempHeapType tb 7 >>= \h -> B.typeBuilderGetTempRefType tb h false
-  B.typeBuilderSetStructType tb 8 [ { ty: refBytesTmp, mutable: false } ] -- $Str = (struct (ref $Bytes))
-  main <- B.typeBuilderBuildAndDispose tb 9
+  B.typeBuilderSetStructType tb 4 [ { ty: refLabelIdsTmp, mutable: false }, { ty: refValsTmp, mutable: false } ]
+  B.typeBuilderSetStructType tb 5 [ { ty: B.f64, mutable: false } ] -- $Num = (struct f64)
+  B.typeBuilderSetArrayType tb 6 B.i32 true -- $Bytes = (array (mut i32)); one UTF-8 byte per i32 lane (not packed)
+  refBytesTmp <- B.typeBuilderGetTempHeapType tb 6 >>= \h -> B.typeBuilderGetTempRefType tb h false
+  B.typeBuilderSetStructType tb 7 [ { ty: refBytesTmp, mutable: false } ] -- $Str = (struct (ref $Bytes))
+  main <- B.typeBuilderBuildAndDispose tb 8
   case main of
-    [ valsHt, intHt, adtHt, cloHt, labelIdsHt, recHt, numHt, bytesHt, strHt ] -> do
+    [ valsHt, intHt, cloHt, labelIdsHt, recHt, numHt, bytesHt, strHt ] -> do
       let refClo = B.typeFromHeapType cloHt false
       tb2 <- B.typeBuilderCreate 1
       B.typeBuilderSetSignatureType tb2 0 (B.createType [ refClo, B.eqref ]) B.eqref
@@ -116,7 +113,6 @@ buildRuntimeTypes _ = do
         [ codeHt ] -> pure
           { intHt
           , valsHt
-          , adtHt
           , cloHt
           , labelIdsHt
           , recHt
@@ -126,7 +122,6 @@ buildRuntimeTypes _ = do
           , codeHt
           , refInt: B.typeFromHeapType intHt false
           , refVals: B.typeFromHeapType valsHt false
-          , refAdt: B.typeFromHeapType adtHt false
           , refClo
           , refLabelIds: B.typeFromHeapType labelIdsHt false
           , refRec: B.typeFromHeapType recHt false
@@ -136,7 +131,7 @@ buildRuntimeTypes _ = do
           , refCode: B.typeFromHeapType codeHt false
           }
         _ -> throwException (error "Codegen: expected exactly 1 code heap type")
-    _ -> throwException (error "Codegen: expected exactly 9 runtime heap types")
+    _ -> throwException (error "Codegen: expected exactly 8 runtime heap types")
 
 -- | The wasm value type for an IR representation.
 repType :: Ctx -> Rep -> B.Type

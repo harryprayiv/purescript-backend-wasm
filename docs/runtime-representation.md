@@ -14,6 +14,7 @@ reference for the **value substrate**; for the WAT a given feature lowers to see
 - [Record](#record)
 - [Algebraic data types](#algebraic-data-types)
 - [Closures](#closures)
+- [Mutable references](#mutable-references)
 - [Unit and erased values](#unit-and-erased-values)
 - [Where the types are defined](#where-the-types-are-defined)
 
@@ -49,6 +50,7 @@ between slots of different representation.
 | `Record { … }` | `$Rec = (struct (ref $LabelIds) (ref $Vals))` | — | parallel interned-label-id / value arrays |
 | `data` (ADT) | `$Data` base + `$Data_<sig>` subtypes | enum-like (all-nullary) → `i31` tag | concrete scalar fields unboxed in the struct |
 | `a -> b` (closure) | `$Clo = (struct funcref (ref $Vals))` | — | code pointer + captured environment |
+| `Effect.Ref a` | `$Ref = (struct (mut eqref))` | — | a single mutable cell; ops are runtime helpers (ADR 0017) |
 | `Unit` | erased | — | a shared no-op value |
 
 ## Scalars
@@ -89,7 +91,10 @@ A record is `$Rec = (struct (ref $LabelIds) (ref $Vals))` — **two parallel arr
 Labels are interned **per program**: every record label in the linked program is
 assigned a dense `i32` id, so a field access is an integer comparison, not a string
 compare. A projection (`r.l`) is a linear search of `$LabelIds` for the label's id,
-returning the parallel `$Vals` element (`$rt.proj`; records are never empty, ADR 0007).
+returning the parallel `$Vals` element (`$rt.proj`). A projected record always contains
+the field being looked up, so the first read needs no bound check. (Empty records exist
+only via `recEmpty` on the FFI path — ADR 0014 — and `proj` is never applied to them;
+`recHas`/`recSet` do guard the `pos == n` case.)
 `Record.Unsafe`'s string-keyed access reaches the ids through an exported `internStr`
 (string → id) resolver. See
 [Supported Features § Records](./supported-features.md#records).
@@ -132,6 +137,17 @@ closure entirely (a direct `call`). Building a closure is `array.new_fixed` (env
 to `(ref $Code)` → `call_ref`. See
 [Supported Features § Closures](./supported-features.md#closures-and-higher-order-functions).
 
+## Mutable references
+
+`Effect.Ref a` is a native wasm cell: `$Ref = (struct (mut eqref))` — a one-field
+mutable struct holding the (boxed) current value. Its operations are runtime helpers
+(`refNew` / `refRead` / `refWrite` / `refModify` / `refNewWithSelf`; ADR 0017), so a
+`Ref` never crosses to JavaScript as an opaque host object — it lives entirely in wasm.
+(`Control.Monad.ST`'s `STRef` is intended to share this representation; its foreign
+names are not wired up yet.) `$Ref` is defined in `runtime/runtime.wat` only — the code
+generator never builds the type, since generated code only ever holds the cell as an
+`eqref`. See [ADR 0017](./design-decisions/0017-native-mutable-references.md).
+
 ## Unit and erased values
 
 `Unit` carries no information, so it is **erased** — `Data.Unit.unit` is a shared no-op
@@ -146,6 +162,10 @@ They are declared as **individual (singleton) recursion groups**: the value rec-
 is acyclic, so Binaryen emits each generated type as its own singleton group, and a
 singleton type is a *different* canonical type from one inside a multi-type `(rec …)`.
 Declaring them individually on both sides makes a `$Str`/`$Vals`/… built by a generated
-module survive a `ref.cast` across the import boundary. The per-constructor ADT
-subtypes (`$Data_<sig>`) are program-specific and built by the code generator, not in
-`runtime.wat`.
+module survive a `ref.cast` across the import boundary.
+
+Only the **shared** value types must match structurally on both sides; two are
+one-sided. The per-constructor ADT subtypes (`$Data_<sig>`) are program-specific and
+built by the code generator only, not in `runtime.wat`. Conversely `$Ref` (mutable
+references) is defined in `runtime.wat` only — generated code holds the cell as an
+`eqref` and never needs the type, so the code generator does not build it.
