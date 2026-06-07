@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Pre-commit gate: reject Japanese text in staged *additions*.
+#
+# Convention (memory: doc-language-convention): permanent, version-controlled files are
+# written in English; Japanese marks throwaway/scratch docs that are kept OUT of version
+# control. This hook enforces that nothing Japanese gets committed — it scans only the lines
+# you are *adding* (not pre-existing content), so it never nags about untouched code, and it
+# catches both new Japanese in English files and an accidentally `git add`-ed scratch doc.
+#
+# Detects Hiragana, Katakana, Han (Kanji), CJK symbols/punctuation, and full/half-width forms.
+# Plain ASCII and ordinary symbols (→, —, …) are fine. Emergency bypass: `git commit --no-verify`.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Walk the staged unified diff (-U0: added lines only, no context), tracking new-file line
+# numbers from the hunk headers, and report every added line that contains Japanese.
+report=$(git diff --cached --unified=0 --no-color --diff-filter=ACM \
+  | perl -CSD -ne '
+      if (/^\+\+\+ b\/(.*)$/)            { $f = $1; next }
+      if (/^@@ -\d+(?:,\d+)? \+(\d+)/)   { $ln = $1; next }
+      next unless defined $f;
+      if (/^\+(?!\+\+)(.*)$/) {
+        my $line = $1;
+        print "$f:$ln: $line\n" if $line =~ /[\p{Hiragana}\p{Katakana}\p{Han}\x{3000}-\x{303F}\x{FF00}-\x{FFEF}]/;
+        $ln++;
+      } elsif (/^ /) { $ln++; }   # context (none at -U0, but be safe)
+    ')
+
+if [ -n "$report" ]; then
+  echo "[pre-commit] ✗ Japanese found in staged additions (permanent files must be English):" >&2
+  echo "$report" | sed 's/^/  /' >&2
+  echo "" >&2
+  echo "  Rewrite in English, or — if this is a deliberately ephemeral scratch doc — keep it" >&2
+  echo "  out of version control (don't 'git add' it). Bypass once with: git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0
