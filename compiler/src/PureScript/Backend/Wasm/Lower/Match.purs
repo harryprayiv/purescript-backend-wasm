@@ -53,7 +53,7 @@ type MatchOps env =
   , bindLocal :: String -> Atom -> env -> env
   , lookupCtor :: Qualified String -> Lower CtorInfo
   -- | Whether a constructor belongs to an enum-like type (all-nullary): its values
-  -- | are `i31ref` tags, matched by reading the tag rather than a `$ADT` switch.
+  -- | are `i31ref` tags, matched by reading the tag rather than a `$Data` switch.
   , isEnumCtor :: Qualified String -> Boolean
   -- | Intern a record label to its `i32` id, for projecting a record-pattern field.
   , internLabel :: String -> Lower Int

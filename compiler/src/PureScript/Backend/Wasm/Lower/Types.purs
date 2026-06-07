@@ -51,7 +51,7 @@ type ModuleInfo =
   -- | the dictionary record, so their application is erased (ADR 0007).
   , dictCtors :: Object Unit
   -- | Constructors of enum-like types (every constructor nullary), built as
-  -- | `i31ref` tags rather than heap `$ADT` structs (ADR 0013).
+  -- | `i31ref` tags rather than heap `$Data` structs (ADR 0013).
   , enumCtors :: Object Unit
   , labelIds :: Object Int
   -- | `foreign import`s that resolve to wasm host imports (ADR 0014), by qualified

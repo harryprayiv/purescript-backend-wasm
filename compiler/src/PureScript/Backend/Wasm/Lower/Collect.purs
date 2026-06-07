@@ -58,7 +58,7 @@ collectCtors fieldReps modules = (foldl perModule { counts: Object.empty, out: O
 -- | The constructors of every **enum-like** type — a type whose every constructor
 -- | is nullary (e.g. `Ordering`, `Unit`, `Data.Generic.Rep.NoArguments`, user
 -- | enums). Their values are represented as allocation-free `i31ref` tags rather
--- | than heap `$ADT` structs (ADR 0013).
+-- | than heap `$Data` structs (ADR 0013).
 collectEnumCtors :: Array Module -> Object Unit
 collectEnumCtors modules =
   Object.fromFoldable (Array.mapMaybe keepEnum entries)

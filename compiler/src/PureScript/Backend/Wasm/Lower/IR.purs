@@ -103,10 +103,10 @@ data Rhs
   | RMkData Int (Array Rep) (Array Atom)
   -- | Construct an *enum-like* ADT value (a type whose every constructor is
   -- | nullary, e.g. `Ordering`): the value is just the constructor `tag` as an
-  -- | allocation-free `i31ref` (like `Boolean`, ADR 0013), not a heap `$ADT`.
+  -- | allocation-free `i31ref` (like `Boolean`, ADR 0013), not a heap `$Data`.
   | RMkEnum Int
   -- | Read the constructor tag of an enum-like value as an `i32` (`ref.cast i31ref`
-  -- | then `i31.get_s`), to drive a `LitSwitch` rather than reading a `$ADT` tag.
+  -- | then `i31.get_s`), to drive a `LitSwitch` rather than reading a `$Data` tag.
   | REnumTag Atom
   -- | Project field `index` out of an ADT value (an `eqref`), given the
   -- | constructor's field-rep signature (to pick its `$Data_<sig>` struct type).

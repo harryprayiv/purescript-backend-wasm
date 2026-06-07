@@ -3,9 +3,11 @@
 -- | (ADR 0004).
 -- |
 -- |   * Scalars box as structs — `$Int = (struct i32)` (also `Char`),
--- |     `$Num = (struct f64)` — while `Boolean` is an unboxed `i31ref`. An ADT is
--- |     `$ADT = (struct i32 (ref $Vals))`, `$Vals = (array (mut eqref))`; a record
--- |     (and so a type-class dictionary) is `$Rec = (struct (ref $LabelIds) (ref $Vals))`.
+-- |     `$Num = (struct f64)` — while `Boolean` is an unboxed `i31ref`. An ADT is an
+-- |     open base `$Data = (struct i32)` (the tag) plus one subtype per constructor
+-- |     shape `$Data_<sig>`, scalar fields unboxed (ADR 0013); `$Vals = (array (mut
+-- |     eqref))` backs `Array`, and a record (and so a type-class dictionary) is
+-- |     `$Rec = (struct (ref $LabelIds) (ref $Vals))`.
 -- |   * A closure is `$Clo = (struct funcref (ref $Vals))` — its code as a
 -- |     generic `funcref` plus a captured-environment array. The code's type
 -- |     `$Code = (func (ref $Clo) eqref -> eqref)` is built in its own recursion
@@ -68,12 +70,12 @@ buildModule prog = do
   traverse_ (addExportWrapper ctx prog.exportSigs) prog.funcs
   pure mod
 
--- | A nullary constructor (`RMkData tag []`) is a constant `$ADT` value — `(tag,
--- | empty fields)` — fully determined by its tag, so every construction of it is
+-- | A nullary constructor (`RMkData tag []`) is a constant `$Data` value — just its
+-- | tag, no fields — fully determined by its tag, so every construction of it is
 -- | the same heap object. Rather than `struct.new` one per use, allocate it once
 -- | as an immutable module global and read it with `global.get`. Sharing is by
--- | tag because the `$ADT` representation erases the source type: `Nothing` and
--- | `Nil` are both `(0, [])` and indistinguishable at runtime. (Enum-like types
+-- | tag because the `$Data` representation erases the source type: `Nothing` and
+-- | `Nil` are both tag `0` and indistinguishable at runtime. (Enum-like types
 -- | use `i31ref` tags instead and never reach here; ADR 0013.)
 nullaryGlobalName :: Int -> String
 nullaryGlobalName tag = "$nullary" <> show tag
