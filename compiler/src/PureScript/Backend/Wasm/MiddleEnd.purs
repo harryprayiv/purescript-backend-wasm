@@ -1,11 +1,15 @@
 -- | The middle-end (optimization layer) facade: translate each module's CoreFn to
 -- | the middle IR (ADR 0005) and apply the optimization passes, yielding MIR that
--- | the backend lowering consumes directly. Optimization is **whole-program**:
--- | dictionary elimination inlines across module boundaries, so the passes run over
--- | all linked modules together rather than one at a time.
+-- | the backend lowering consumes directly. The optimization *context* (inline set,
+-- | transparent constructors, purity) is built **whole-program** — dictionary
+-- | elimination and general inlining cross module boundaries — but modules are then
+-- | optimized one at a time in dependency order, each against the already-finalized
+-- | modules (ADR 0021), not in a single whole-program rewrite.
 -- |
--- | Pipeline: translate → lambda lifting (per module) → dictionary elimination
--- | (whole-program simplification driven by a context built from every module).
+-- | Pipeline: translate → lambda lifting (per module) → higher-order specialization
+-- | (whole-program, once) → dependency-ordered per-module optimization, each module
+-- | running simplify (dictionary elimination + inlining) → impurify (Effect glue) →
+-- | simplify again.
 module PureScript.Backend.Wasm.MiddleEnd
   ( optimizeProgram
   , optimizeProgramTrace
@@ -39,22 +43,23 @@ import PureScript.CoreFn (Module)
 -- | its top-level bindings are represented (lambda lifting may also prepend lifted
 -- | supercombinators).
 -- |
--- | Dictionary elimination is run to a whole-program fixed point: each round rebuilds
--- | the inline context from the *current* program and simplifies, because eliminating
--- | a dictionary turns a method binding into a fresh inlinable alias (`add =
--- | Data.Semiring.add(semiringInt)` becomes `add = intAdd`, which the next round
--- | inlines so a use `add(x, y)` is the intrinsic directly).
--- | `dictElim` toggles the dictionary-elimination simplification (run to a fixed
--- | point); lambda lifting always runs, since it is what makes deep tail recursion
--- | run in constant stack (disabling it would overflow). Pass `false` to build an
--- | unoptimized baseline.
+-- | Modules are optimized in dependency order, each once against the already-finalized
+-- | modules (ADR 0021): eliminating a dictionary turns a method binding into a fresh
+-- | inlinable alias (`add = Data.Semiring.add(semiringInt)` becomes `add = intAdd`),
+-- | and since a dependency is finalized before its dependents, a dependent inlines the
+-- | already-reduced alias so a use `add(x, y)` becomes the intrinsic directly. (This
+-- | replaced an older whole-program fixed-point loop that re-ran inlining to
+-- | convergence and blew up on transformer-heavy code.)
+-- | `dictElim` toggles the optimization passes; lambda lifting always runs, since it is
+-- | what makes deep tail recursion run in constant stack (disabling it would overflow).
+-- | Pass `false` to build an unoptimized baseline.
 optimizeProgram :: Boolean -> Set String -> Map String Int -> Array Module -> Array M.Module
 optimizeProgram dictElim eff arities modules = (runOpt dictElim eff arities Nothing modules).modules
 
--- | Like `optimizeProgram`, but also returns a human-readable trace of how the named
--- | module's MIR changes after every sub-stage (specialize / simplify / impurify) of every
--- | round — for inspecting the optimizer (`bin --trace-mir`, cf. purs-backend-es
--- | `--trace-rewrites`). The trace is empty unless a target module is given.
+-- | Like `optimizeProgram`, but also returns a human-readable trace of the named module's
+-- | MIR — a snapshot after specialization and one after it is optimized (simplify →
+-- | impurify → simplify) — for inspecting the optimizer (`bin --trace-mir`, cf.
+-- | purs-backend-es `--trace-rewrites`). The trace is empty unless a target module is given.
 optimizeProgramTrace :: Boolean -> Set String -> Map String Int -> String -> Array Module -> Array String
 optimizeProgramTrace dictElim eff arities target modules = (runOpt dictElim eff arities (Just target) modules).trace
 

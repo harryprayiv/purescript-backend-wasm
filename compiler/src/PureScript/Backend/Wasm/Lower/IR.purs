@@ -244,8 +244,9 @@ type IRFunc =
 
 -- | A whole compiled module: the top-level functions (including lifted code
 -- | functions and the nullary functions that top-level value bindings compile
--- | to). ADR 0002's tier-2 runtime functions will join them once strings/arrays
--- | arrive.
+-- | to). The shared runtime helpers (string / array / `Effect` primitives) are not
+-- | here — they live in a separate runtime wasm module imported at the `rt`
+-- | namespace and linked in by wasm-merge (ADR 0010).
 -- |
 -- | `labels` is the program's record-label intern table — every record label as
 -- | its `(string, i32 id)` pair (ids dense from 0, the same ids baked into

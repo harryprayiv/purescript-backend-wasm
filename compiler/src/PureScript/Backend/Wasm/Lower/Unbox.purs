@@ -213,8 +213,10 @@ rewriteFunc sigs fn = fn
   sig :: Sig
   sig = fromMaybe { params: [], result: Bx } (Map.lookup fn.name sigs)
   isCodeFunc = Array.head fn.params == Just CloRef
-  -- the host export ABI is `i32` (ADR 0011), so an exported function's `f64`
-  -- parameters / result cannot be unboxed at that boundary — keep them `Boxed`.
+  -- an exported function crosses the host boundary through a marshalling wrapper
+  -- (Codegen, ADR 0014) that converts each param / result; that wrapper falls back
+  -- to the `i32` ABI for an export with no externs signature, so keep an exported
+  -- function's `f64` params / result `Boxed` and let the wrapper convert them.
   isExported = case fn.export of
     Just _ -> true
     Nothing -> false

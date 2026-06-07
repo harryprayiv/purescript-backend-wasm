@@ -385,9 +385,10 @@ quoteLit pctx = case _ of
 
 -- | A fresh binder name derived from a base, unique within one `normalize` call (the
 -- | counter is threaded through quote). `$q` marks an NbE-reified binder; any prior
--- | `$q` suffix is stripped first so re-normalising a stable program (each round resets
--- | the counter and quotes deterministically) reproduces identical names and the
--- | whole-program fixed point converges instead of churning names every round.
+-- | `$q` suffix is stripped first so re-normalising an already-normalised expression
+-- | (each `normalize` call resets the counter and quotes deterministically) reproduces
+-- | identical names rather than churning a fresh `$q` suffix on every pass — which keeps
+-- | the repeated simplify passes (`localOpt` runs simplify → impurify → simplify) stable.
 fresh :: String -> Q String
 fresh base0 = do
   let

@@ -117,8 +117,8 @@ compileModules opts = withCompiledModule opts B.emitBinary
 compileModulesText :: CompileOptions -> Array ModuleName -> Array Module -> Array ExternsFile -> Object ForeignSig -> Effect (Either String String)
 compileModulesText opts = withCompiledModule opts B.emitText
 
--- | Trace how the named module's middle IR (MIR) changes after every optimizer sub-stage
--- | (specialize / simplify / impurify) of every round — the `--trace-mir` companion to the
+-- | Trace the named module's middle IR (MIR) — its form after specialization and after it
+-- | is optimized (simplify → impurify → simplify) — the `--trace-mir` companion to the
 -- | normal build, using the *same* effectful-foreign set/arities so the trace matches the
 -- | real pipeline. `target` is a dotted module name (e.g. `Examples.EffRef.Main`).
 mirTrace :: CompileOptions -> Array Module -> Object ForeignSig -> String -> String

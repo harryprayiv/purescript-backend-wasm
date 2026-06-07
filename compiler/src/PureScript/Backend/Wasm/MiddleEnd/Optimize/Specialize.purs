@@ -53,11 +53,11 @@ type FuncInfo =
 
 type SpecEntry = { modName :: ModuleName, ident :: String, expr :: M.Expr }
 
--- | `existing` is the set of every top-level ident already in the program — including
--- | specializations created in *previous* whole-program rounds, which persist as decls.
--- | New spec names are chosen to avoid it (and each other), so a later round cannot
--- | reuse an earlier round's `…$specN` name for a *different* specialization (a name
--- | collision that bound references to the wrong spec — the Cps02 state-threading bug).
+-- | `existing` is the set of every top-level ident already in the program. New spec
+-- | names are chosen to avoid it and each other (`freshSpecIdent` reserves each name it
+-- | hands out), so a fresh specialization never reuses an existing `…$specN` name for a
+-- | *different* specialization (a name collision that bound references to the wrong
+-- | spec — the Cps02 state-threading bug).
 type S = State { existing :: Set String, specs :: Map String SpecEntry }
 
 specializeProgram :: Array M.Module -> Array M.Module

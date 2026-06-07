@@ -96,9 +96,9 @@ buildCtx modules =
 
   acceptHelper i = if intersects i.refs candidateKeys then Nothing else Just (Tuple i.key i.rhs)
 
--- | Reduce an expression. Toggle between the legacy rule-based `Simplify` engine and
--- | the NbE reducer (`Semantics`, ADR 0020) while the latter is being brought up to
--- | behaviour-parity. Flip to `true` to A/B the NbE path against the suite.
+-- | Reduce an expression. `useNbE` selects the reducer: the NbE reducer (`Semantics`,
+-- | ADR 0020) is the default (`true`); set it to `false` to fall back to the legacy
+-- | rule-based `Simplify` engine — e.g. to A/B the two against the test suite.
 useNbE :: Boolean
 useNbE = true
 

@@ -168,7 +168,6 @@ foreignIntrinsic = case _ of
   "boolConj" -> Just (Tuple BoolAnd 2)
   "boolDisj" -> Just (Tuple BoolOr 2)
   "boolNot" -> Just (Tuple BoolNot 1)
-  -- `Number` arithmetic + `Int` → `Number` conversion
   -- `Data.Semigroup` `<>`: string concat reuses the string runtime helper
   "concatString" -> Just (Tuple StrConcat 2)
   "concatArray" -> Just (Tuple ArrayConcat 2)
@@ -182,6 +181,7 @@ foreignIntrinsic = case _ of
   "unsafeHas" -> Just (Tuple UnsafeHas 2)
   "unsafeSet" -> Just (Tuple UnsafeSet 3)
   "unsafeDelete" -> Just (Tuple UnsafeDelete 2)
+  -- `Number` arithmetic + `Int` → `Number` conversion
   "numAdd" -> Just (Tuple NumAdd 2)
   "numMul" -> Just (Tuple NumMul 2)
   "numSub" -> Just (Tuple NumSub 2)
@@ -205,34 +205,29 @@ foreignIntrinsic = case _ of
   "readCtr" -> Just (Tuple ReadCtr 1)
   _ -> Nothing
 
--- | `Effect.Ref` / `Control.Monad.ST` native cell ops (ADR 0017), keyed by their
--- | **qualified** name. Unlike the bare-ident table above, these must be qualified:
--- | `read` / `write` / `_new` are too generic to claim globally. `modifyImpl` is not
--- | here — it is desugared in `Lower` (it needs the record's `state`/`value` label ids),
--- | so it is recognised there by qualified name instead. The arity counts each op's
--- | value parameters plus the trailing `Effect`/`ST` perform-unit (so `read`/`_new` are
--- | 2, `write` is 3); the unit operand is dropped in codegen.
--- | The `effect`-package intrinsics, keyed by **qualified** name (ADR 0017 / 0018): the
--- | `Effect.Ref` cell ops, the `Effect` control-flow loops, and `Effect.Uncurried`'s
--- | `mkEffectFnN`/`runEffectFnN`. Qualified (not the bare-ident table) because names like
--- | `read`/`write`/`new`/`forE` are too generic to claim globally.
+-- | Intrinsics resolved by *qualified* name (rather than the bare identifier the table
+-- | above uses): the `effect`-package primitives — `Effect.Ref` cell ops (ADR
+-- | 0017) and the `Effect` control-flow loops (ADR 0018) — plus
+-- | `Partial.Unsafe._unsafePartial`, a couple of `Data.Array` ops, and the
+-- | uncurried-function families. Qualified because names like `read` / `write` / `new`
+-- | / `forE` are too generic to claim globally.
 -- |
--- | The arity counts value parameters plus the trailing `Effect` perform-unit for the ops
--- | whose result is `Effect Unit` (`Ref.write`, `forE`, …): they are performed via the
--- | unit-application path, and the unit operand is dropped in codegen. `modifyImpl` is
--- | arity 3 so an unperformed `modify' = modifyImpl` eta-expands to a proper thunk.
--- | `mkEffectFnN` is arity 1 (identity); `runEffectFnN` is arity N+1 (the function + N
--- | args), matched by stripping the numeric suffix so all N = 1..10 resolve.
+-- | The arity counts each op's value parameters plus the trailing `Effect`
+-- | perform-unit for the ops whose result is `Effect Unit` (`Ref.write`, `forE`, …):
+-- | they are performed via the unit-application path, and that unit operand is dropped
+-- | in codegen. `modifyImpl` is here too (`RefModify`, arity 3 so an unperformed
+-- | `modify' = modifyImpl` eta-expands to a proper thunk); its record `state` / `value`
+-- | label ids are resolved at codegen via `internStr` (`Codegen.Prim`).
 -- |
--- | (`Control.Monad.ST` shares the `$Ref` representation and is a natural follow-up once
--- | its foreign names/shapes are confirmed; not wired here yet.)
--- | Intrinsics resolved by *qualified* name (rather than base identifier): the
--- | effect-package primitives (`Effect.Ref`, `forE`, …) and the uncurried-function
--- | families. The latter are pure but share the closure machinery: `mkEffectFnN` /
+-- | The uncurried families are pure but share the closure machinery: `mkEffectFnN` /
 -- | `Data.Function.Uncurried.mkFnN` are the identity (the uncurried value *is* the
--- | curried `$Clo`), and `runEffectFnN` / `runFnN` apply the function to its N arguments
--- | via the `applyClo` chain — identical codegen; the only difference (an `Effect`
--- | result performed by the caller vs. a plain result) is invisible here.
+-- | curried `$Clo`, arity 1), and `runEffectFnN` / `runFnN` apply the function to its N
+-- | arguments via the `applyClo` chain (arity N+1, the suffix parsed) — identical
+-- | codegen; the only difference (an `Effect` result performed by the caller vs. a plain
+-- | result) is invisible here.
+-- |
+-- | (`Control.Monad.ST` shares the `$Ref` representation, a natural follow-up once its
+-- | foreign names/shapes are confirmed; not wired here yet.)
 qualifiedIntrinsic :: String -> Maybe (Tuple Intrinsic Int)
 qualifiedIntrinsic = case _ of
   "Effect.Ref._new" -> Just (Tuple RefNew 2)

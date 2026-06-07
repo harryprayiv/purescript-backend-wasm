@@ -139,9 +139,9 @@ simplifyExpr ctx = fixpoint maxPasses
     -- running an `Effect` is applying its thunk to a (unit) argument (ADR 0015).
     -- Reducing `Perform` to that application lets the ordinary rules take over: a pure
     -- `\$ev -> b` β-reduces away (the pure-`Effect` collapse), and a recursive
-    -- `perform(go(…))` app-flattens to a saturated `go(…, unit)` that TCEs. (Step 2 will
-    -- gate this on the run being pure, leaving a genuinely effectful `Perform` as a
-    -- barrier the reordering/dropping rules must respect; until then every run is pure.)
+    -- `perform(go(…))` app-flattens to a saturated `go(…, unit)` that TCEs. A genuinely
+    -- effectful `Perform` is left as a barrier the reordering/dropping rules must respect:
+    -- the general producer rule below collapses a run only when it is provably pure.
     -- running a literal thunk just evaluates its body (the unit binder is unused) —
     -- always sound, even for an effectful body, so this is never gated. Peels one
     -- parameter (a multi-parameter thunk performed once yields the rest as a function).
