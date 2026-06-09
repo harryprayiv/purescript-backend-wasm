@@ -14,6 +14,7 @@ import Data.Array as Array
 import Data.Foldable (foldl)
 import Data.List (List(..), (:))
 import Data.List as List
+import Wasm.Array as WA
 
 -- 1. fib — tree recursion + Int arithmetic.
 fib :: Int -> Int
@@ -109,3 +110,33 @@ mapFoldArray iters = loop iters 0
   where
   base = map (\x -> x + 1) (Array.range 1 2000)
   loop k acc = if k == 0 then acc else loop (k - 1) (foldl (\a x -> a + x) acc base)
+
+-- `waMap` / `waFoldl` — the higher-order array combinators, written as ordinary PureScript
+-- over `Wasm.Array`'s first-order primitives (so their closures **specialize**, ADR 0027 — no
+-- per-element `call_ref`). NOTE (ADR 0026): these are the **library layer** and belong in the
+-- repositioned `ulib`'s `Data.Array` (PureScript over `Wasm.Array`), NOT in `Wasm.Array` itself
+-- (first-order primitives only). They live here only as a PoC stand-in until `ulib`'s
+-- `Data.Array` is repositioned to shadow the registry one; then idiomatic `Data.Array.map` /
+-- `foldl` get this directly. Being above `Prelude`, they use ordinary `+` / `>=`.
+waMap :: forall a b. (a -> b) -> Array a -> Array b
+waMap f xs = go 0 (WA.unsafeNew n)
+  where
+  n = WA.length xs
+  go i out = if i >= n then out else go (i + 1) (WA.unsafeSet out i (f (WA.unsafeIndex xs i)))
+
+waFoldl :: forall a b. (b -> a -> b) -> b -> Array a -> b
+waFoldl f z xs = go 0 z
+  where
+  n = WA.length xs
+  go i acc = if i >= n then acc else go (i + 1) (f acc (WA.unsafeIndex xs i))
+
+-- 7c. mapFoldWasmArray — identical computation to `mapFoldArray`, but `map` / `foldl` are the
+--     PureScript-over-`Wasm.Array` combinators above: the closures **specialize** (ADR
+--     0026 + 0027) into a direct loop — no per-element `call_ref`. The contrast with
+--     `mapFoldArray` (foreign `ulib` HOFs) isolates the win from moving the higher-order layer
+--     out of foreign `.wat` and into PureScript.
+mapFoldWasmArray :: Int -> Int
+mapFoldWasmArray iters = loop iters 0
+  where
+  base = waMap (\x -> x + 1) (Array.range 1 2000)
+  loop k acc = if k == 0 then acc else loop (k - 1) (waFoldl (\a x -> a + x) acc base)

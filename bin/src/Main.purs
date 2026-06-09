@@ -8,7 +8,7 @@ import Data.Array as Array
 import Data.Either (Either(..), either)
 import Data.ArrayBuffer.Types (Uint8Array)
 import Data.Foldable (for_)
-import Data.Maybe (Maybe(..), isNothing, maybe)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing, maybe)
 import Data.List.NonEmpty as NEL
 import Data.Map as Map
 import Data.Set (Set)
@@ -34,11 +34,14 @@ import Node.Cbor (decodeFirst)
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import PureScript.Backend.Wasm.Compiler (compileModules, mirTrace, parseModule)
+import PureScript.Backend.Wasm.Intrinsics (foreignIntrinsic, qualifiedIntrinsic)
 import PureScript.Backend.Wasm.Externs (foreignSigs)
 import PureScript.Backend.Wasm.SourceForeigns (parseForeignSigs)
 import PureScript.Backend.Wasm.Ulib (parseUlibSigs)
+import PureScript.Backend.Wasm.Ulib.Interface (compatible, diffInterface, interfaceOf)
+import PureScript.ExternsFile (ExternsFile)
 import PureScript.Backend.Wasm.Lower.IR (ForeignImport, MarshalKind(..), foreignManifestJson, exportManifestJson)
-import PureScript.CoreFn (ModuleName, toModuleName)
+import PureScript.CoreFn (Module, ModuleName, toModuleName)
 import PureScript.ExternsFile.Decoder.Class (decoder)
 import PureScript.ExternsFile.Decoder.Monad (runDecoder)
 import Unsafe.Coerce (unsafeCoerce)
@@ -110,7 +113,73 @@ buildOptionsParser =
           # ArgParser.optional
     }
 
-data Command = Build BuildOption
+type UlibInstallOption =
+  { libPath :: Maybe FilePath
+  , purs :: Maybe FilePath
+  , force :: Boolean
+  }
+
+ulibInstallParser :: ArgParser UlibInstallOption
+ulibInstallParser =
+  ArgParser.fromRecord
+    { libPath:
+        ArgParser.argument [ "-L", "--lib-path" ]
+          "Where to store the compiled ulib corefn/externs.\n\
+          \Defaults to the `lib` dir beside the compiler (`<cli>/../lib`)."
+          # ArgParser.optional
+    , purs:
+        ArgParser.argument [ "-x", "--purs" ]
+          "Path to the `purs` executable used to compile the shadows. Defaults to `purs` on PATH."
+          # ArgParser.optional
+    , force:
+        ArgParser.flag [ "-f", "--force" ]
+          "Rebuild even if the lib is already present."
+          # ArgParser.boolean
+    }
+
+type UlibValidateOption =
+  { libPath :: Maybe FilePath
+  , spago :: Maybe FilePath
+  }
+
+ulibValidateParser :: ArgParser UlibValidateOption
+ulibValidateParser =
+  ArgParser.fromRecord
+    { libPath:
+        ArgParser.argument [ "-L", "--lib-path" ]
+          "The installed ulib to validate. Defaults to `<cli>/../lib`."
+          # ArgParser.optional
+    , spago:
+        ArgParser.argument [ "-S", "--spago" ]
+          "The resolved package-set sources to compare against (one dir per package,\n\
+          \`<package>-<version>`). Defaults to `.spago/p`."
+          # ArgParser.optional
+    }
+
+type UlibCheckOption =
+  { libPath :: Maybe FilePath
+  , input :: Maybe FilePath
+  }
+
+ulibCheckParser :: ArgParser UlibCheckOption
+ulibCheckParser =
+  ArgParser.fromRecord
+    { libPath:
+        ArgParser.argument [ "-L", "--lib-path" ]
+          "The installed ulib to check. Defaults to `<cli>/../lib`."
+          # ArgParser.optional
+    , input:
+        ArgParser.argument [ "-I", "--input" ]
+          "The directory of *your* compiled artifacts (per-module `externs.cbor`) to compare\n\
+          \the shadows' interface against — i.e. your spago build output. Defaults to `output`."
+          # ArgParser.optional
+    }
+
+data Command
+  = Build BuildOption
+  | UlibInstall UlibInstallOption
+  | UlibValidate UlibValidateOption
+  | UlibCheck UlibCheckOption
 
 commandParser :: ArgParser Command
 commandParser =
@@ -119,6 +188,20 @@ commandParser =
         "Build a wasm module from a PureScript project's compiler artifacts"
         do
           Build <$> buildOptionsParser <* ArgParser.flagHelp
+    , ArgParser.command [ "ulib" ]
+        "Manage the ulib shadow library (ADR 0028)"
+        do
+          ArgParser.choose "ulib command"
+            [ ArgParser.command [ "install" ]
+                "Compile the ulib shadows into the lib (corefn + externs)"
+                (UlibInstall <$> ulibInstallParser <* ArgParser.flagHelp)
+            , ArgParser.command [ "validate" ]
+                "Check each installed shadow's version matches your resolved package set"
+                (UlibValidate <$> ulibValidateParser <* ArgParser.flagHelp)
+            , ArgParser.command [ "check" ]
+                "Compare each shadow's public interface against your compiled module (externs)"
+                (UlibCheck <$> ulibCheckParser <* ArgParser.flagHelp)
+            ] <* ArgParser.flagHelp
     ]
     <* ArgParser.flagHelp
     <* ArgParser.flagInfo [ "--version", "-v" ] "Show version" Version.versionString
@@ -154,17 +237,256 @@ reachableClosure roots importMap = go (Set.fromFoldable (map printModname roots)
     in
       if Set.size seen' == Set.size seen then seen else go seen'
 
+-- | Capability check for `wasm-base` (ADR 0026): `Wasm.*` is `wasm-base`'s reserved namespace,
+-- | and its foreigns are meant to resolve to *this* backend's intrinsics (the JS foreigns it
+-- | bundles are for the JS backends only). A `Wasm.*` foreign this backend does not recognize
+-- | means the `wasm-base` is newer than the backend supports — fail with a clear message rather
+-- | than silently degrading to the JS-foreign / trap path on wasm.
+-- |
+-- | While `wasm-base` is intrinsic-only it exposes no GC-type ABI, so a name (capability) check
+-- | is the right, version-independent guard. A stricter version lock becomes necessary only once
+-- | `wasm-base` ships hand-written `.wat` (which talks the backend's GC types directly). See
+-- | ADR 0026.
+checkWasmBaseCompat :: forall r. Array { name :: ModuleName, foreignNames :: Array String | r } -> Either String Unit
+checkWasmBaseCompat modules = case Array.nub (modules >>= unsupported) of
+  [] -> Right unit
+  bad -> Left
+    ( Fmt.fmt
+        @"This purs-wasm backend ({backend}) does not provide {n} `Wasm.*` primitive(s): {names}. Your `wasm-base` is newer than this backend supports — install a `wasm-base` compatible with it."
+        { backend: Version.version, n: Array.length bad, names: Str.joinWith ", " bad }
+    )
+  where
+  -- only `Wasm.*` modules; other foreigns may legitimately resolve via ulib / JS-fallback
+  unsupported m
+    | Array.head m.name == Just "Wasm" = Array.filter (not <<< recognized) (map (qualified m.name) m.foreignNames)
+    | otherwise = []
+  qualified modName fn = Str.joinWith "." modName <> "." <> fn
+  recognized qual = isJust (qualifiedIntrinsic qual) || isJust (foreignIntrinsic (lastSegment qual))
+  lastSegment q = fromMaybe q (Array.last (Str.split (Pattern ".") q))
+
+-- | The purs compiler version(s) whose CoreFn format this backend's decoder is verified against
+-- | (ADR 0029). A linked module — the user's app *or* a ulib shadow — built with another compiler
+-- | may carry a subtly different CoreFn shape this backend would mis-decode, so it is rejected
+-- | loudly rather than silently miscompiled. Widen only after testing the decoder against the new
+-- | compiler's output (a breaking CoreFn change between two purs releases is exactly what this
+-- | guards: it surfaces as a clear error, not a wrong build).
+supportedCorefn :: Array String
+supportedCorefn = [ "0.15.16" ]
+
+-- | Reject any linked module whose `builtWith` compiler is not one this backend supports.
+checkCorefnVersions :: forall r. Array { name :: ModuleName, builtWith :: String | r } -> Either String Unit
+checkCorefnVersions modules = case Array.filter (\m -> not (Array.elem m.builtWith supportedCorefn)) modules of
+  [] -> Right unit
+  bad -> Left
+    ( Fmt.fmt
+        @"{n} module(s) were compiled with an unsupported purs (version(s): {versions}); e.g. {egs}{more}. This purs-wasm decodes CoreFn from {supported} — rebuild with that compiler (your project and the bundled ulib lib must agree on it)."
+        { n: Array.length bad
+        , versions: Str.joinWith ", " (Array.nub (map _.builtWith bad))
+        , egs: Str.joinWith ", " (map (Str.joinWith "." <<< _.name) (Array.take 5 bad))
+        , more: if Array.length bad > 5 then ", …" else ""
+        , supported: Str.joinWith ", " supportedCorefn
+        }
+    )
+
+-- | The registry modules ulib shadows (ADR 0028), each tied to the *package* version its
+-- | shadow was reimplemented against.
+type Shadow = { package :: String, version :: String, corefn :: FilePath }
+
+-- | Scan the ulib lib for shadows: each `<lib>/<package>-<version>/<Module>/corefn.json` is a
+-- | shadow of registry module `<Module>`, tagged with the package version it targets (ADR 0028).
+-- | Returns a `Module name -> Shadow` map. An absent lib (e.g. the lib build hasn't run) → empty.
+loadShadowMap :: FilePath -> Aff (Map.Map String Shadow)
+loadShadowMap libPath = do
+  present <- isNothing <$> FS.access libPath
+  if not present then pure Map.empty
+  else do
+    pkgDirs <- FS.readdir libPath
+    rows <- for pkgDirs \pkgVer -> do
+      let pkgPath = Path.concat [ libPath, pkgVer ]
+      let { pkg, ver } = splitPkgVer pkgVer
+      mods <- try (FS.readdir pkgPath)
+      pure case mods of
+        Right ms -> ms <#> \m -> Tuple m { package: pkg, version: ver, corefn: Path.concat [ pkgPath, m, "corefn.json" ] }
+        Left _ -> []
+    pure (Map.fromFoldable (Array.concat rows))
+
+-- | Split a `<package>-<version>` directory name on its last `-` (versions carry no `-`, but a
+-- | package name may: `foldable-traversable-6.0.0` → package `foldable-traversable`, ver `6.0.0`).
+splitPkgVer :: String -> { pkg :: String, ver :: String }
+splitPkgVer s = case Array.unsnoc (Str.split (Pattern "-") s) of
+  Just { init, last } -> { pkg: Str.joinWith "-" init, ver: last }
+  Nothing -> { pkg: s, ver: "" }
+
+-- | `6.0.2` -> `6.0`. Shadows match a registry version by `major.minor` (a patch bump keeps the
+-- | module interface, so it still applies; a minor/major bump may not — ADR 0028).
+majorMinor :: String -> String
+majorMinor v = Str.joinWith "." (Array.take 2 (Str.split (Pattern ".") v))
+
+-- | Extract `<package>`'s version from a corefn modulePath (`…/<package>-<version>/…`).
+pkgVersionFromPath :: String -> String -> Maybe String
+pkgVersionFromPath pkg path =
+  Array.index (Str.split (Pattern (pkg <> "-")) path) 1 >>= (Array.head <<< Str.split (Pattern "/"))
+
+-- | ulib lib-first shadowing (ADR 0028): if `mod` has a ulib shadow whose target package version
+-- | matches (by `major.minor`) the user's resolved version, use the shadow's corefn (PureScript
+-- | over WasmBase → the closures specialize, ADR 0027). Otherwise keep the registry module
+-- | (correct, but the foreign HOF stays opaque) with a warning. Never fails the build.
+shadowOrRegistry :: Map.Map String Shadow -> ModuleName -> Module -> Aff Module
+shadowOrRegistry shadows mod registryMod = case Map.lookup (printModname mod) shadows of
+  Nothing -> pure registryMod
+  Just s
+    | (majorMinor <$> pkgVersionFromPath s.package registryMod.path) /= Just (majorMinor s.version) -> do
+        Console.log
+          ( Fmt.fmt
+              @"  ulib: {m} not shadowed ({pkg} {got} ≠ supported {want}); using registry (foreign HOF stays slow)"
+              { m: printModname mod, pkg: s.package, got: fromMaybe "?" (pkgVersionFromPath s.package registryMod.path), want: s.version }
+          )
+        pure registryMod
+    | otherwise -> do
+        libSrc <- FS.readTextFile UTF8 s.corefn
+        case parseModule libSrc of
+          Left _ -> pure registryMod
+          Right libMod -> do
+            Console.log (Fmt.fmt @"  ulib: shadowing {m} ({pkg} {ver})" { m: printModname mod, pkg: s.package, ver: s.version })
+            pure libMod
+
 main :: FilePath -> Effect Unit
 main _cliRoot =
   parseArgs >>= case _ of
     Left err -> Console.error (ArgParser.printArgError err)
-    Right (Build args) -> launchAff_ (buildCmd args)
+    Right (Build args) -> launchAff_ (buildCmd _cliRoot args)
+    Right (UlibInstall args) -> launchAff_ (ulibInstallCmd _cliRoot args)
+    Right (UlibValidate args) -> launchAff_ (ulibValidateCmd _cliRoot args)
+    Right (UlibCheck args) -> launchAff_ (ulibCheckCmd _cliRoot args)
 
 -- | Link every module found under `input` into one wasm and write it to
 -- | `output`. Paths are resolved against the current working directory.
-buildCmd :: BuildOption -> Aff Unit
-buildCmd args = do
+-- | `purs-wasm ulib install` (ADR 0028): compile the ulib shadows (`<cli>/../ulib/shadow/`)
+-- | into the lib (corefn + externs) via `ulib-install.sh`. Skips if the lib already exists,
+-- | unless `--force`. The shadow set is the dir structure (`<pkg>-<ver>/<Module path>.purs`),
+-- | compiled against the resolved package-set sources (`.spago/p`) with WasmBase overlaid.
+ulibInstallCmd :: FilePath -> UlibInstallOption -> Aff Unit
+ulibInstallCmd cliRoot opt = do
+  let libPath = fromMaybe (Path.concat [ cliRoot, "..", "lib" ]) opt.libPath
+  let purs = fromMaybe "purs" opt.purs
+  let shadowRoot = Path.concat [ cliRoot, "..", "ulib", "shadow" ]
+  let wasmBaseSrc = Path.concat [ cliRoot, "..", "wasm-base", "src" ]
+  let script = Path.concat [ cliRoot, "ulib-install.sh" ]
+  present <- isNothing <$> FS.access libPath
+  if present && not opt.force then
+    Console.log "ulib: lib already present (use -f/--force to rebuild)."
+  else do
+    when opt.force (execFile "rm" [ "-rf", libPath ])
+    Console.log "ulib: compiling shadows -> lib …"
+    execFile "sh" [ script, libPath, shadowRoot, wasmBaseSrc, purs, Path.concat [ ".spago", "p" ] ]
+    Console.log "ulib: done."
+
+-- | Decode a `externs.cbor` file, or `Nothing` if it is absent/unreadable/undecodable
+-- | (CBOR → Foreign → `ExternsFile`). Mirrors the externs read in `buildCmd`.
+readExterns :: FilePath -> Aff (Maybe ExternsFile)
+readExterns path = do
+  result <- try do
+    buf <- FS.readFile path
+    fgn <- decodeFirst buf
+    pure (runDecoder decoder fgn)
+  pure case result of
+    Right (Right ef) -> Just ef
+    _ -> Nothing
+
+-- | `purs-wasm ulib validate` (ADR 0028): for each installed shadow, check that the package
+-- | version it was built against still matches (by `major.minor`) the version resolved in your
+-- | workspace (`.spago/p`). A patch bump keeps the interface so the shadow still applies; a
+-- | minor/major divergence means the shadow would be skipped at build time (the foreign HOF
+-- | stays slow) — so this fails loudly and asks you to align your version to the ulib's.
+ulibValidateCmd :: FilePath -> UlibValidateOption -> Aff Unit
+ulibValidateCmd cliRoot opt = do
+  let libPath = fromMaybe (Path.concat [ cliRoot, "..", "lib" ]) opt.libPath
+  let spago = fromMaybe (Path.concat [ ".spago", "p" ]) opt.spago
+  libPresent <- isNothing <$> FS.access libPath
+  if not libPresent then Console.log "ulib: no lib installed (run `ulib install`)."
+  else do
+    pkgDirs <- FS.readdir libPath
+    spagoDirs <- either (const []) identity <$> try (FS.readdir spago)
+    let userVers = Map.fromFoldable (spagoDirs <#> \d -> let { pkg, ver } = splitPkgVer d in Tuple pkg ver)
+    let
+      rows = pkgDirs <#> \pkgVer ->
+        let
+          { pkg, ver } = splitPkgVer pkgVer
+        in
+          { pkg, ulibVer: ver, userVer: Map.lookup pkg userVers }
+    for_ rows \r -> case r.userVer of
+      Nothing ->
+        Console.log (Fmt.fmt @"  ? {pkg}: ulib {u}, not in your workspace" { pkg: r.pkg, u: r.ulibVer })
+      Just uv
+        | majorMinor uv == majorMinor r.ulibVer ->
+            Console.log (Fmt.fmt @"  ✓ {pkg}: ulib {u}, yours {y}" { pkg: r.pkg, u: r.ulibVer, y: uv })
+        | otherwise ->
+            Console.log (Fmt.fmt @"  ✗ {pkg}: ulib {u} ≠ yours {y} (major.minor differs)" { pkg: r.pkg, u: r.ulibVer, y: uv })
+    let mismatches = Array.filter (\r -> maybe false (\uv -> majorMinor uv /= majorMinor r.ulibVer) r.userVer) rows
+    if Array.null mismatches then Console.log "ulib: validate OK."
+    else throwError
+      ( error
+          ( Fmt.fmt
+              @"ulib: {n} package(s) diverge from the shadows. Align your workspace to: {pkgs}."
+              { n: Array.length mismatches, pkgs: Str.joinWith ", " (mismatches <#> \r -> r.pkg <> " " <> r.ulibVer) }
+          )
+      )
+
+-- | `purs-wasm ulib check` (ADR 0028, deep check): compare each installed shadow's *public
+-- | interface* (exported names, from its stored externs) against the same module compiled in
+-- | your workspace (`<input>/<Module>/externs.cbor`, i.e. your spago build output). A shadow
+-- | that drops a name the registry module exports is not a drop-in — that fails the check; a
+-- | shadow that only *adds* names is reported but allowed. A module you have not compiled yet
+-- | is skipped with a note (build your project first to check it).
+ulibCheckCmd :: FilePath -> UlibCheckOption -> Aff Unit
+ulibCheckCmd cliRoot opt = do
+  let libPath = fromMaybe (Path.concat [ cliRoot, "..", "lib" ]) opt.libPath
+  let input = fromMaybe (Path.concat [ ".", "output" ]) opt.input
+  libPresent <- isNothing <$> FS.access libPath
+  if not libPresent then Console.log "ulib: no lib installed (run `ulib install`)."
+  else do
+    pkgDirs <- FS.readdir libPath
+    breaks <- map Array.concat $ for pkgDirs \pkgVer -> do
+      let pkgPath = Path.concat [ libPath, pkgVer ]
+      mods <- either (const []) identity <$> try (FS.readdir pkgPath)
+      map Array.catMaybes $ for mods \mod -> do
+        libExt <- readExterns (Path.concat [ pkgPath, mod, "externs.cbor" ])
+        usrExt <- readExterns (Path.concat [ input, mod, "externs.cbor" ])
+        case libExt, usrExt of
+          _, Nothing -> do
+            Console.log (Fmt.fmt @"  - {m} ({p}): not compiled in your workspace; skipped" { m: mod, p: pkgVer })
+            pure Nothing
+          Nothing, _ -> do
+            Console.log (Fmt.fmt @"  - {m} ({p}): shadow externs unreadable; skipped" { m: mod, p: pkgVer })
+            pure Nothing
+          Just le, Just ue -> do
+            let d = diffInterface (interfaceOf ue) (interfaceOf le)
+            if compatible d then do
+              Console.log
+                ( Fmt.fmt @"  ✓ {m} ({p}): interface OK{extra}"
+                    { m: mod, p: pkgVer, extra: if Array.null d.extra then "" else " (+" <> show (Array.length d.extra) <> " extra)" }
+                )
+              pure Nothing
+            else do
+              Console.log (Fmt.fmt @"  ✗ {m} ({p}): missing {names}" { m: mod, p: pkgVer, names: Str.joinWith ", " d.missing })
+              pure (Just mod)
+    if Array.null breaks then Console.log "ulib: check OK."
+    else throwError
+      ( error
+          ( Fmt.fmt
+              @"ulib: {n} shadow(s) are not drop-in for your workspace: {mods}. Align your version to the ulib's, or update the shadow."
+              { n: Array.length breaks, mods: Str.joinWith ", " breaks }
+          )
+      )
+
+buildCmd :: FilePath -> BuildOption -> Aff Unit
+buildCmd cliRoot args = do
   logShow args
+  -- ulib lib (ADR 0028) sits beside the compiler: `node_modules/purs-wasm/lib`, the nix
+  -- store path, or — for this in-repo prototype — the project root `lib/`. `cliRoot` is the
+  -- `bin/` dir (the CLI entry's dirname), so the lib is one level up.
+  let libPath = Path.concat [ cliRoot, "..", "lib" ]
+  shadows <- loadShadowMap libPath
   -- Each subdirectory of `input` is named by its dotted module name; sort for a
   -- deterministic build (ADR 0009).
   entries <- FS.readdir args.input
@@ -188,7 +510,13 @@ buildCmd args = do
     source <- FS.readTextFile UTF8 (Path.concat [ args.input, printModname mod, "corefn.json" ])
     case parseModule source of
       Left err -> throwError (error (printModname mod <> ": " <> err))
-      Right m -> pure m
+      Right m -> shadowOrRegistry shadows mod m
+  -- Fail early on a `wasm-base` whose version is incompatible with this backend (ADR 0026).
+  either (throwError <<< error) pure (checkWasmBaseCompat modules)
+  -- Reject CoreFn from an unsupported purs (ADR 0029): the user's app and the bundled ulib lib
+  -- must both be the compiler this backend's decoder is verified against, else a CoreFn-format
+  -- change could mis-decode silently.
+  either (throwError <<< error) pure (checkCorefnVersions modules)
   -- Each module's `externs.cbor` carries the top-level type information CoreFn
   -- erased; it drives type-directed lowering (front B). A module without readable
   -- or decodable externs is simply skipped — its constructors fall back to boxed.
