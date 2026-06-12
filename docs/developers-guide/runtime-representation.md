@@ -3,7 +3,7 @@
 How each PureScript value is laid out in WebAssembly at run time. This is a
 reference for the **value substrate**; for the WAT a given feature lowers to see
 [Supported Features](./supported-features.md), for the design rationale see the
-[ADRs](./design-decisions), and for how values cross to JavaScript see
+[ADRs](../design-decisions), and for how values cross to JavaScript see
 [JS↔WASM interop](./interop.md).
 
 - [The two-level picture: boxed baseline, unboxed where it pays](#the-two-level-picture)
@@ -146,7 +146,7 @@ mutable struct holding the (boxed) current value. Its operations are runtime hel
 (`Control.Monad.ST`'s `STRef` is intended to share this representation; its foreign
 names are not wired up yet.) `$Ref` is defined in `runtime/runtime.wat` only — the code
 generator never builds the type, since generated code only ever holds the cell as an
-`eqref`. See [ADR 0017](./design-decisions/0017-native-mutable-references.md).
+`eqref`. See [ADR 0017](../design-decisions/0017-native-mutable-references.md).
 
 ## Unit and erased values
 
