@@ -18,6 +18,14 @@
 > with no network and the registry source is swappable for the WASI self-host goal. **Every
 > reference to `ulib-compat.mjs` in this ADR now denotes that subcommand.** (The old `.mjs` stays
 > in-tree only until the `bin` CLI is retired.)
+>
+> **Update (2026-06-13):** Final locations (the Update above and the Context below predate the
+> split): there is **no `purs-wasm ulib` subcommand group** — the user `purs-wasm` CLI has only
+> `build`. The maintainer ops live in the separate **`ulib-tooling`** CLI: read "`purs-wasm ulib
+> install`" as **`ulib-tooling install`** and "`purs-wasm ulib compat`" as **`ulib-tooling compat`**.
+> The old `ulib-compat.mjs` and the `bin` CLI are **both gone** (retired), so "the old `.mjs` stays
+> in-tree until `bin` is retired" no longer applies. And the **nix packaging is done** (`flake.nix`
+> ships the precompiled lib), not a pending next step.
 
 ## Context
 

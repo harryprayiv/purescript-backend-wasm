@@ -3,6 +3,11 @@
 - Status: ~~Proposed~~ **Accepted** _(2026-06-07: promoted — implemented (`LetJoin` across Lower/Codegen/Unbox).)_
 - Date: 2026-06-06
 
+> **Correction (2026-06-13):** The Codegen section below names a `resultRep` ctx field; there is no
+> such field. The "rep the current tail must produce" is carried by the existing **`funcResult`**
+> field, reused inside a `LetJoin` producer (at the function body it is the function's result rep;
+> inside a producer it is temporarily the join slot's rep). `tailPos` is as described.
+
 ## Context
 
 The first "real big app" target — `examples/metatheory`, a transformer-heavy typechecker

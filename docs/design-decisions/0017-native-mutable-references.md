@@ -30,7 +30,9 @@ runtime helpers, resolved by the intrinsic table (ADR 0002).**
   `refModify` (apply `f` to the current value, store the record's `state`, return its
   `value`; reuses `$callClo1` and `$rt.proj`). Nothing crosses to JS.
 - `Effect.Ref`'s foreigns map to intrinsics (`RefNew`/`RefRead`/`RefWrite`/
-  `RefNewWithSelf`/`RefModify`) by their **qualified** name (`effectRefIntrinsic`), not the
+  `RefNewWithSelf`/`RefModify`) by their **qualified** name (~~`effectRefIntrinsic`~~
+  `qualifiedIntrinsic` — _corrected 2026-06-13: no `effectRefIntrinsic` function exists; the
+  qualified resolver is `Intrinsics.qualifiedIntrinsic`_), not the
   bare-ident table — `read`/`write`/`new` are too generic to claim globally.
 - An `Effect`-typed foreign intrinsic is **performed via the unit-application path**: its
   arity counts the value parameters *plus* the trailing `Effect` perform-unit (so `read`

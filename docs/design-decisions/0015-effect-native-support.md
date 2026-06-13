@@ -10,6 +10,15 @@
   host `console.log "Hello, World!"` runs through the full pipeline. Still pending:
   auto-running a `main :: Effect Unit` entry point, `EffectFnN`, `ST`, `forE`/`whileE`.
 
+> **Update (2026-06-13):** The "Still pending" list above is now **done**. (1) `forE`/`foreachE`/
+> `whileE`/`untilE` are native intrinsics (`Intrinsics.qualifiedIntrinsic` → `ForE`/`ForeachE`/
+> `WhileE`/`UntilE` + runtime helpers, ADR 0018); (2) `EffectFnN` (`mkEffectFnN`/`runEffectFnN`) is
+> handled by suffix-stripping into `MkEffectFn`/`RunEffectFn` (ADR 0018); (3) `ST`/`Effect.Ref` is
+> native via the shared `$Ref` struct (ADR 0017); (4) auto-running `main :: Effect Unit` is the
+> `-E/--executable` loader feature (the loader runs `main` on load). Also: the bundled hello-world
+> prints **`"Hello from WASM World!"`** (`examples/helloworld`), not the `"Hello, World!"` this
+> bullet quotes.
+
 ## Context
 
 `Effect` is PureScript's `IO`. In a strict language it is, operationally, a **nullary

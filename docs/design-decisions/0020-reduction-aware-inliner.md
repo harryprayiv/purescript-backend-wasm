@@ -4,6 +4,17 @@
 - Date: 2026-06-05
 
 > **Progress (2026-06-07):** The NbE core (`Semantics`'s `Sem`/`eval`/`quote`) is implemented and is **the default reducer** (`DictElim.useNbE = true`), plus a stack-safe `IR.Eq` (migration step 1). The main goal — **reduction-aware inlining decisions (step 3) — is not yet started** (currently stage 2: NbE merely reproduces the existing inline set `Inline.inlineCandidates`). Kept Proposed.
+>
+> **Update (2026-06-13, cross-link to [ADR 0021](0021-streaming-dependency-ordered-wpo.md)):** ADR
+> 0021 (same date) changed the architecture this ADR's **Invariant 1 (contraction)** and
+> **Migration-plan step 4** assume. The whole-program **N-round fixed-point loop** (the "`MiddleEnd`'s
+> whole-program `prog' == prog`" convergence check, and the `maxRounds`/`maxPasses` caps step 4 would
+> "demote to a backstop") **no longer exists**: `MiddleEnd.runOpt` now optimizes modules **once each
+> in dependency order** (ADR 0021 Phase 1, implemented), with no outer round loop. ADR 0021 also
+> **reverted this ADR's stage 3** as ineffective against the size compounding. What stays live and
+> implemented here is the **NbE reducer core** (steps 1–2, per the Progress note); the reduction-aware
+> *inlining decision* (step 3) remains future work. So this ADR is **not** superseded — read its
+> whole-program-loop framing (Invariant 1, step 4) as historical context that 0021 overtook.
 
 ## Context
 

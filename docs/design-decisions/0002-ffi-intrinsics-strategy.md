@@ -4,6 +4,13 @@
 - Date: 2026-05-31
 
 > **Correction (2026-06-07):** Placement and the extension seam evolved. The tier-2/3 runtime functions are not "all bundled into the module" but split into **separate wasm modules ([ADR 0010](0010-runtime-as-a-separate-wasm-module.md) `runtime.wat` / [ADR 0012](0012-ulib-curated-package-ffi.md) `ulib`)**. No named `ForeignProvider` abstraction was introduced; resolution uses the `foreignIntrinsic`/`qualifiedIntrinsic` tables + `foreignSigs` + the ulib ladder + host imports ([ADR 0014](0014-user-ffi-resolution-and-marshalling.md)). The tier-1 inline-intrinsic core still holds.
+>
+> **Correction (2026-06-13):** Further drift in the Decision/Consequences below:
+> - **`intDiv`/`intMod` are Euclidean, not "truncate-toward-zero".** They implement Euclidean division with a **non-negative remainder** (`intMod x y = ((x % |y|) + |y|) % |y|`; `intDiv x y = (x − intMod x y)/y`; both guard `y = 0`), matching PureScript's `Data.EuclideanRing` `Int` instance (`runtime.wat` `$rt.intMod`/`$rt.intDiv`, `Intrinsics.purs`). The "truncate-toward-zero" wording was never correct for the chosen semantics.
+> - **`intDiv`/`intMod` are tier-2 runtime helpers, not tier-1 inline** — emitted as calls to `$rt.intDiv`/`$rt.intMod` (`Codegen/Prim.purs`); only the simpler ops (`intAdd → i32.add`, …) are truly inline.
+> - **`showNumberImpl` is implemented** (a Dragon4 / shortest-round-trip routine), not left unimplemented — kept as the `Data.Show` `.wat` foreign while the other `show*Impl` became PureScript ulib shadows.
+> - The intrinsics table is **two String-keyed lookups** (`foreignIntrinsic` by bare ident, `qualifiedIntrinsic` by qualified name) returning a closed `Intrinsic` enum + arity, **not** a `Qualified Ident -> CodeGen`; the `Intrinsic → Binaryen` step lives separately in `Codegen/Prim.genPrim`.
+> - The "no host imports / no general wasm linker" Consequences no longer hold: host imports exist (user FFI, ADR 0014) and the build links app + runtime + foreign wasm with **`wasm-merge`** (the 2026-06-07 note above records the host-imports change).
 - See also: [ADR 0012](0012-ulib-curated-package-ffi.md) — evolves tiers 2/3 (the
   bundled-runtime / higher-order foreigns) into manifest-driven `ulib` FFI, keeping
   tier 1 as the inline-intrinsics table.

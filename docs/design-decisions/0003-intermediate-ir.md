@@ -4,6 +4,12 @@
 - Date: 2026-05-31
 
 > **Correction (2026-06-07):** The eval/apply machinery did **not** adopt PAP/`applyN`. Per [ADR 0004](0004-uniform-eqref-calling-convention.md) ("everything eqref, arity-1 closures"), partial/over-application is handled by an **arity-1 `RApply` chain** (no PAP struct, no `applyN`). `Atom` is per-type literals (`ALitInt`/`ALitNumber`/`ALitBoolean`/`ALitString`) + `AVar (Local | EnvField)` (**no `Global`**; top-level names go through `RCallKnown`/nullary functions). The ANF, closure-conversion, and decision-tree core still holds (in `Lower/IR` and `Lower/Match`).
+>
+> **Correction (2026-06-13):** Further drift in the Decision sketch below, now corrected against `Lower/IR.purs`, `Lower/Match.purs`, and `Codegen.purs`:
+> - **`Rep`** is `I32 | F64 | Boxed | CloRef` (the last is a lifted code function's closure param), **not** `Boxed | I32 | F64 | I31` — there is no `I31` rep (a `Boolean` is an `i31ref` *value* but not a distinct rep).
+> - **Pattern matching** is compiled by the **Maranget** column-selection decision-tree algorithm (`Lower/Match`), not the "sequential/backtracking automaton (Maranget deferred)" the sketch describes — column selection shipped.
+> - **Closure layout**: the `(struct arity i32, (ref $Codek), captured…)` sketch is superseded by the uniform `$Clo = (struct funcref (ref $Vals))` with a single arity-1 `$Code` signature — see the 2026-06-13 correction in [ADR 0001](0001-wasm-gc-substrate-and-value-representation.md) (no `arity` field, no `$Codek` family, captures in an env array).
+> - **Tail calls**: only `return_call` is emitted (for a saturated `RCallKnown` in tail position); `return_call_ref` is **not** implemented, so closure (`RApply`) tail calls are not TCO'd — tail recursion relies on lambda-lifting to direct module functions.
 
 ## Context
 

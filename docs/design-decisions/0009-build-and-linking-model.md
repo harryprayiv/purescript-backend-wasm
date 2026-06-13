@@ -7,6 +7,14 @@
 > reimplemented as the `purs-wasm` package (user `build`) plus a separate maintainer `ulib-tooling`
 > package (ADR 0031). The multi-module-input → single-wasm linking model decided here is unchanged;
 > read `bin` as `purs-wasm`.
+>
+> **Update (2026-06-13):** Two refinements to the Decision/Consequences below:
+> - **`externs` now feeds lowering, not only optimization.** `Compiler.withCompiledModule` always
+>   passes `ctorFieldReps externs` into lowering regardless of the optimize flag — the per-constructor
+>   field wasm reps (front-B: `I32`/`F64`/`Boxed`) fix ADT struct field layout at lowering time
+>   (ADR 0013). Linking can still proceed with reps absent (`collectCtors` falls back to all-`Boxed`),
+>   so the "CoreFn-only to link" core holds, but `externs` is no longer purely an optimization input.
+> - The combined lowering entry is named **`lowerModules`** (`Lower.purs`), not `lowerProgram`.
 
 ## Context
 

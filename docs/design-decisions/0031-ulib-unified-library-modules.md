@@ -237,6 +237,19 @@ flowchart TD
 - the e2e harness's `ulibImports()` and its independent registry+wat path.
 - the `resolveForeign` ulib-wat branch (providers come from the merged `$LIB` `foreign.wasm`).
 
+> **Correction (2026-06-13):** Two of the "Removed" bullets above overstate what was deleted:
+> - **`loadShadowMap` was *not* removed.** `PursWasm.CLI.Ulib.Shadow` still exists and still exports
+>   `loadShadowMap`, now repurposed to scan the flat installed lib (`$LIB/<Module>/`) into a `Shadow`
+>   map; it is imported and used by the build (`Build.purs`, `Build/Foreign.purs`). Only
+>   `shadowOrRegistry` was removed.
+> - **`compat.json` was *not* removed.** `ulib/compat.json` still exists and is maintained by the
+>   retained maintainer `ulib-tooling compat` subcommand; the build-time version check additionally
+>   uses `ulib-manifest.json`. (`ulib-compat.mjs` and the in-`purs-wasm` `compat` *are* gone — moved to
+>   `ulib-tooling compat`.)
+> - §4's quoted standalone-mismatch error is approximate: the version check only **warns**
+>   (`Build.warnUlibVersionDrift`); the fatal `standalone` error is raised later, at foreign
+>   resolution, and lists the **JS-fallback foreign names**, not the package / ulib-version comparison.
+
 **Preserved / changed**
 
 - WasmBase (`Wasm.*`) remains the first-order primitive layer the ulib PS builds on; this is the

@@ -3,6 +3,16 @@
 - Status: Accepted
 - Date: 2026-06-04
 
+> **Correction (2026-06-13):** Two name/scope refinements:
+> - The intrinsic table this ADR calls `effectIntrinsic` (extending ADR 0017's, itself misnamed)
+>   is actually **`Intrinsics.qualifiedIntrinsic`** — no `effectIntrinsic`/`effectRefIntrinsic`
+>   function exists.
+> - The same `MkEffectFn`/`RunEffectFn` intrinsics and suffix-stripping resolve
+>   **`Data.Function.Uncurried.mkFnN`/`runFnN`** as well as `Effect.Uncurried.mkEffectFnN`/
+>   `runEffectFnN` (`qualifiedIntrinsic` strips both `Effect.Uncurried.mkEffectFn…` and
+>   `Data.Function.Uncurried.mkFn…`); `Fn`/`EffectFn` share the machinery. The Consequences below
+>   mention only the `Effect.Uncurried` pair.
+
 ## Context
 
 The `effect` package ships FFI primitives the JS provider ladder (ADR 0014) cannot run

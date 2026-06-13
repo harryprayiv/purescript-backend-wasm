@@ -3,6 +3,18 @@
 - Status: ~~Proposed~~ **Accepted** _(2026-06-07: promoted — implemented (`addExportWrapper` + `emitLoader`).)_
 - Date: 2026-06-06
 
+> **Correction (2026-06-13):** Two refinements:
+> - **Regression coverage moved.** There is no `Test.E2E.PointFree` test (nor `Example.PointFree`)
+>   any more; the point-free / non-record export cases were migrated to the standalone fixture
+>   `e2e-fixtures/src/E2E/ForeignExport.purs` and the test `compiler/test/E2E/Cli/ForeignExport.purs`
+>   (its header records the migration). The old `Example.PointFree` fixture files still sit under
+>   `compiler/test/fixtures/` but are no longer referenced by name.
+> - **Rule 1 also admits a narrow `C = T+1` Effect case.** `addExportWrapper` accepts the sig when
+>   `params ≥ compiledArity` **or** when the result is an `Effect` kind and `params + 1 ≥
+>   compiledArity` — an `Effect`-returning export whose compiled arity exceeds the sig arity by one
+>   (the trailing perform-unit param, ADR 0018), the extra param synthesised via `defaultConst`. The
+>   `C ≤ T` framing of §1 does not mention this.
+
 ## Context
 
 Compiling `examples/metatheory` to a callable wasm surfaced two failures at the **export

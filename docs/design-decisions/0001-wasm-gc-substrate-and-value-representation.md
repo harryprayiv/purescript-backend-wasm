@@ -4,6 +4,13 @@
 - Date: 2026-05-31
 
 > **Correction (2026-06-07):** The ADT value representation was later superseded by **[ADR 0013](0013-int-number-unboxing.md)**. ADTs are no longer the closed `$ADT = (struct i32 (ref $Vals))` of this record, but an **open base `$Data = (struct i32)` plus per-signature subtypes `$Data_<sig>` (scalar fields unboxed)**. The dead `$ADT` type has since been removed from `Codegen/RuntimeTypes` (it was unused; each value type is emitted as an independent singleton rec group, so dropping it is behaviour-neutral). The rest of this record (the wasm-GC substrate, eqref, `$Int`/`$Num`/`$Str`/`$Clo`, …) still holds.
+>
+> **Correction (2026-06-13):** Several concrete shapes in the Decision's WAT block and prose below drifted from the shipped runtime (`Codegen/RuntimeTypes.purs`, `runtime/runtime.wat`). The substrate decision (Wasm GC, uniform `eqref`, boxed scalars, label-map records, closure conversion) stands; the corrected representations are:
+> - **`$Bytes` / `$Str`**: `$Bytes` is `(array (mut i32))` — one UTF-8 byte per `i32` lane, *not* a packed `(array i8)`; `$Str = (struct (ref $Bytes))`.
+> - **`$Rec` / labels**: record labels are **interned dense `i32` ids**, not sorted `$Str` references. There is no `$Labels`/`(array (ref $Str))`; instead `$LabelIds = (array (mut i32))` and `$Rec = (struct (ref $LabelIds) (ref $Vals))` (parallel label-id / value arrays).
+> - **`$Clo` / `$Code`**: closures are **not** per-lambda subtypes. `$Clo = (struct funcref (ref $Vals))` — a single non-subtyped struct holding the code as a generic `funcref` plus a captured-env `$Vals` array (a free variable is read positionally: `EnvField i`). The code field is deliberately `funcref` (its lifted body structurally matches `$Code`), and `$Code` is built in a **separate** type group, not `$Clo`'s. Mutual recursion is knot-tied by back-patching the **env array** (`array.set` into the `(mut eqref)` `$Vals`), not by mutable struct fields on subtypes.
+> - **Type-group structure**: the value types are each emitted as an **independent singleton rec group** (not one multi-member `(rec …)`); `$Ref = (struct (mut eqref))` was added later for `Effect.Ref`/`STRef` (ADR 0017).
+> - **String semantics**: the UTF-8 vs `Data.String.CodeUnits` note in Consequences was refined by **[ADR 0030](0030-data-string-over-utf8.md)** — `Data.String.CodeUnits` is **code-point**-indexed over UTF-8 (an astral char counts as 1), not UTF-16 code-unit-indexed; byte-level access lives in `Wasm.String`.
 
 ## Context
 

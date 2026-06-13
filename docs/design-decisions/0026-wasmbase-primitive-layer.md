@@ -61,6 +61,17 @@
 > intrinsic surface stabilizes (co-evolving the `Wasm.*` names with the backend is easier in one
 > repo while it churns). Only the *external* `spago install wasm-base` path waits on that
 > extraction (or on registry support for nested packages).
+>
+> **Update (2026-06-13):** Done — `wasm-base` was **extracted to its own repo**
+> (`github.com/purs-wasm/purescript-wasm-base`) and **published to the registry (v0.1.1)**. The
+> monorepo no longer has an in-repo `wasm-base` subdir; it consumes the external package (pinned via
+> git tag in `purs-wasm/spago.yaml`, with `wasm-base: 0.1.1` the registry target). Two appendix
+> details to read as *provisional intent*, not shipped surface: (1) the shipped package contains only
+> **`Wasm.Array` / `Wasm.Boolean` / `Wasm.Char` / `Wasm.Int` / `Wasm.String`** — there is **no
+> `Wasm.Record` / `Wasm.Ref` / `Wasm.Number`** (record ops stay under `Record.Unsafe.*`, `Ref` under
+> `Effect.Ref.*` in the intrinsic table), and `Wasm.Int` ships only `add/sub/mul/eq/lt/div/mod` (no
+> `degree`/`toNumber`/`top`/`bottom`/`compare`/`fromNumber`); (2) **`Wasm.Array.unsafeSet` returns the
+> `Array`**, not `Unit` (`… -> a -> Array a`), so a builder loop can thread it.
 
 ## Context
 

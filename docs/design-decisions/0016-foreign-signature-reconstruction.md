@@ -3,6 +3,16 @@
 - Status: Accepted
 - Date: 2026-06-04
 
+> **Correction (2026-06-13):** Two refinements:
+> - **The merge is now three-way, precedence `ulib > externs > source`** (not the two-way
+>   `externs ∪ source` of Decision bullet 3). `buildForeignSigs` computes
+>   `Object.union ulibSigs (Object.union externsSigs srcSigs)` (`PursWasm.CLI.Build.ForeignSigs`): a
+>   ulib module's `foreign.wat` export sig overrides both externs and source. The externs-over-source
+>   half stated here is unchanged.
+> - **`bin` → `purs-wasm`.** Source reconstruction and the `cache-db.json` lookup now live in the
+>   `purs-wasm` CLI (`PursWasm.CLI.Build.ForeignSigs` / `cacheDbSources`); read every `bin` reference
+>   below as `purs-wasm`.
+
 ## Context
 
 ADR 0014 resolves a `foreign import` that is not a compiler intrinsic by looking up its

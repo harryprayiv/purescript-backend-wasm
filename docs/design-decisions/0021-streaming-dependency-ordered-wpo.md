@@ -4,6 +4,23 @@
 - Date: 2026-06-05
 
 > **Progress (2026-06-07):** **Phase 1 (dependency-ordered single-pass optimization — `MiddleEnd.topoOrder` + `localOpt`, each module optimized once against already-finalized dependencies) is implemented.** **Phase 2 (streaming / incremental codegen — emit per module, discard the MIR, keep only summaries) is not.** Kept Proposed.
+>
+> **Update (2026-06-13):** A few specifics below have moved on (Phase 1 shipped; Phase 2 not):
+> - **DCE is not yet the binding-level pre-pass** the "DCE" section describes (that is Phase 2). Today
+>   reachability is module-level (`Compiler.reachableModules`, pre-optimize) plus function-level
+>   (`Lower` `reachableFunctions`, at lowering), so the live-set filter is presently *post*-optimization,
+>   not a pre-optimization binding-level pass.
+> - **Specialization now runs twice, not "once".** A second whole-program `specializeProgram` runs
+>   *post-inline* (ADR 0027, the `where`-worker idiom), followed by a β/reduce-only simplify. The
+>   "Future: level-parallel" note's "(currently whole-program, once)" predates ADR 0027.
+> - **Only `--dump-mir` exists.** The discard-hook line's `dump-mir`/`dump-opt`/`dump-prune`/
+>   `--trace-mir` are not separate tools; the CLI exposes a single `--dump-mir` (which supersedes the
+>   old `dump-mir`/`dump-opt` scripts).
+> - **`bin` → `purs-wasm`.** The driver was retired/reimplemented as `purs-wasm`; read `bin` below
+>   accordingly.
+> - Cross-link: this ADR's dependency-ordered single pass replaced the whole-program N-round loop that
+>   [ADR 0020](0020-reduction-aware-inliner.md)'s Invariant 1 / step 4 assumed, and reverted ADR 0020
+>   stage 3 (Context above).
 
 ## Context
 

@@ -3,6 +3,19 @@
 - Status: Accepted
 - Date: 2026-06-01
 
+> **Correction (2026-06-13):** Two points the implementation took a different route on:
+> - **No dictionary-specific eager-subgraph topological sort exists** (§2). Surviving acyclic
+>   dictionary CAFs are ordered by the **generic CAF-global init order** (ADR 0006, `Codegen/Caf.purs`)
+>   over the reference graph — the superclass thunks already hide the cycle-closing back-edges, so
+>   that graph is acyclic for these. The §2 mechanism is realized *indirectly* via ADR 0006's CAF
+>   ordering, not as a separate dictionary pass.
+> - **`Effect`'s cyclic group is now *eliminated*, not *constructed*** (Scope). Since `Effect` was
+>   reached, its method accessors are rewritten directly (`Impurify` — `functorEffect`/`applyEffect`/
+>   `pureE`/`bindE`/`unsafePerformEffect`) and `DictElim` collapses `accessor(instance)` to the
+>   underlying implementation, so `Effect`'s recursive dictionary group is never built as a runtime
+>   `$Rec` value group. The construction-order mechanisms of §2–§3 are therefore not exercised for
+>   `Effect` (they remain the model for any non-eliminated cyclic group).
+
 ## Context
 
 Earlier notes (ADR 0005 / 0006, and the roadmap) said Slice 3 could run

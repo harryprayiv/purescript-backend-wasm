@@ -6,6 +6,11 @@
   runtime module into a runtime *core* plus per-package `ulib` foreign modules
   (which reuse the singleton-type canonicalization established here).
 
+> **Correction (2026-06-13):** Three points below have drifted:
+> - **"rec-type group" is a misnomer for the actual shape.** The value types are *not* declared as a multi-member `(rec …)` group. `runtime.wat` declares each value type as an **individual, non-`(rec)`** type, and `buildRuntimeTypes` likewise builds them as singleton groups (no `SetOpen`/`SubType`) — the value graph is acyclic, so Binaryen emits each as its own singleton rec group, and a singleton `$Str` is a *different* canonical type from a `$Str` that is a member of a multi-type `(rec …)`. The load-bearing requirement is therefore that **both** sides use singleton non-rec types (not that they share one multi-member rec group); `$Code` is built in a separate group again. Read "rec group" below as "the set of singleton value types."
+> - **`bin` → `purs-wasm`.** The production build driver was retired and reimplemented as the `purs-wasm` package; the `wasm-merge` post-step now lives in `PursWasm.CLI.Build`. Read every `bin` reference below as `purs-wasm`.
+> - **`$rt.showInt` is no longer a runtime helper.** `showInt` was reimplemented as a PureScript ulib shadow (`Data.Show` `showIntImpl`, ADR 0028/0031); `runtime.wat` no longer exports it. (The Context below lists it as a then-shipped helper — historical.)
+
 ## Context
 
 The backend ships a small **shared runtime** — helper functions that every

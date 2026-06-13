@@ -3,6 +3,15 @@
 - Status: ~~Approved~~ **Accepted** _(2026-06-07: vocabulary aligned with the README's "Accepted". Implemented — U1–U3 / enum / front-B.)_
 - Date: 2026-06-02
 
+> **Correction (2026-06-13):** Two names in the Slices log below have moved on:
+> - The representation-analysis entry point is **`Lower.Unbox.assignProgramReps`** (a whole-program
+>   fixpoint over the rep lattice), not `assignReps` — the U2-era local `assignReps` was superseded
+>   by the whole-program form U3 describes. The reps are assigned only when optimizing (`Lower.purs`:
+>   `if optimize then assignProgramReps …`).
+> - `bin` (slice B: "`bin` loads each `externs.cbor`") was retired and reimplemented as `purs-wasm`;
+>   externs are now read by `PursWasm.CLI.Externs.readExterns`.
+>   `PureScript.Backend.Wasm.Externs.ctorFieldReps` is unchanged.
+
 ## Context
 
 Under the uniform `eqref` value convention (ADR 0004) every value is an `eqref`,

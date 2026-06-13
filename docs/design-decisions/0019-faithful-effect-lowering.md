@@ -26,6 +26,24 @@
 > the scrutinee was still eagerly evaluated; reflection makes it a thunk instead). The
 > `~137`-strip / never-drop / `--no-opt`-oracle items below remain as the deeper uniform-rep
 > programme, but are no longer needed for these two bugs.
+>
+> **Clarification (2026-06-13):** to be explicit about which parts of the Decision/Consequences
+> below are the *unadopted* deeper programme (the shipped fix is step-2 reflection only, above):
+> - Decision points **1–2** (a uniform thunk representation; effectful foreigns *always* thunks) —
+>   not adopted. The position-dependent eager path is retained; only foreigns in *value* position
+>   are reflected to thunks (`Impurify`), while a directly-performed foreign still lowers eagerly.
+> - Decision point **3** ("never dropped", gated on a sound "contains a `Perform`") — the dead /
+>   single-use `let` rules still gate on the head-based `exprPure` (`Simplify`), made correct
+>   *indirectly* because step-2 reflection puts a `Perform` in a discarded effect's RHS.
+> - Decision point **5** (`--no-opt` as a faithful Effect oracle) — `--no-opt` still returns only
+>   translated + lambda-lifted MIR (no `Impurify`), so it does *not* resolve `Effect` structurally.
+> - The **`~137` `perform e → App e [unit]` strip** — still present, still gated on the head-based
+>   `runPure` (`Simplify`).
+> - The Consequences "**Effect-CAF-export gap falls out**" — the export wrapper still special-cases
+>   `Effect` via the ADR-0018 trailing perform-unit, since the uniform representation was not adopted.
+>
+>   These describe intended behaviour the code reaches by a different route, or not at all; none is a
+>   defect — they are the deferred deeper programme.
 
 ## Context
 

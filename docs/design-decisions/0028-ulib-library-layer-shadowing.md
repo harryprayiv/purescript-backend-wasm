@@ -10,6 +10,11 @@
 > decides provenance, not branching in the compiler). `validate` is retired (the build-time check
 > covers it); the maintainer `install`/`check`/`compat` ops moved to the separate `ulib-tooling` CLI,
 > so the user `purs-wasm` binary carries only `build`.
+>
+> **Note (2026-06-13):** the shadow set named in the Status line (`Data.Functor`/`Foldable`/`Array`)
+> was the 2026-06-10 snapshot; it has since grown to ~13 modules across prelude / arrays /
+> foldable-traversable / strings / integers (the current set lives in `ulib/` and
+> `ulib-manifest.json`, ADR 0031).
 
 ## Context
 

@@ -3,6 +3,15 @@
 - Status: ~~Proposed~~ **Accepted** _(2026-06-07: promoted — implemented (full marshalling + `addExportWrapper` + the provider ladder). JS→wasm closures (direction 2) are deferred.)_
 - Date: 2026-06-03
 
+> **Correction (2026-06-13):** The curated-package wasm-provider *path* changed (ADR 0031).
+> `resolveForeign` resolves, in order: (1) a project-local `<input>/<M>/foreign.wasm`, (2) a
+> project-local `<input>/<M>/foreign.wat` (assembled), then (3) the **per-module prebuilt
+> `foreign.wasm` in the installed lib** (a ulib module's kept foreign). It **no longer consults the
+> global `ulib/<M>/foreign.wat` layer** during a build — that layer is now test-only (the e2e
+> harness). So "discovered … under `ulib/` for curated packages" below is superseded: a curated wasm
+> foreign now arrives via the per-module lib `foreign.wasm`, not `ulib/<M>/foreign.wat`. (Rung 1,
+> intrinsics, is still resolved earlier, in lowering.)
+
 ## Context
 
 ADR 0002 resolves a `foreign import` through a code-generator **intrinsics table**

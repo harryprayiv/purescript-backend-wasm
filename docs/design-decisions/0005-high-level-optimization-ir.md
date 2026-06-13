@@ -5,6 +5,24 @@
 - Date: 2026-05-31
 - Revised: 2026-06-02
 
+> **Correction (2026-06-13):** The Decision's *pipeline diagram*, *Module layout* tree, and
+> *Migration plan* below sketch a structure that shipped differently; the Status line above lists the
+> actual `Optimize/*` submodules. Specifically:
+> - **Uncurrying is a `Transl`-phase transform, not an `Optimize` pass.** The MIR is uncurried *by
+>   construction* (`Transl` `peelAbs`/`collectApp` collapse nested `Abs` / flatten `App` spines);
+>   `Optimize` operates on already-uncurried MIR. (The diagram's `Optimize → MIR … uncurrying` line is
+>   misplaced.)
+> - **No `MiddleEnd/Monad`, `MiddleEnd/Optimize` driver, or `Uncurry`/`Dce`/`BetaReduce`/`CaseOfCtor`
+>   modules exist.** The IR is a single `MiddleEnd/IR.purs` (+ `IR/Eq.purs`), not `IR/Types`; the
+>   lambda-lift pass is `Optimize/LambdaLift.purs` (not `LambdaLifting`); orchestration lives in
+>   `MiddleEnd.runOpt`, not a dedicated `Optimize` module. There is no optimization monad with a
+>   change flag — the reducer is a pure NbE evaluator (`Optimize/Semantics.normalize`, ADR 0020) or
+>   the fuel-bounded `Optimize/Simplify`; beta / case-of-ctor are folded into those, not standalone
+>   modules.
+> - **Reachability DCE did not split into an `Optimize/Dce`** (Migration step 3). The coarse
+>   pre-`Transl` filter landed (`Compiler.reachableModules`), but the finer function-level DCE stayed
+>   in `Lower.Collect.reachableFunctions` (+ Binaryen's own DCE); no MIR DCE pass was added.
+
 ## Context
 
 The pipeline today is `CoreFn → AnfExpr → Binaryen → wasm` with a single IR
