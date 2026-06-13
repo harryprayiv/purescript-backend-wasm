@@ -55,7 +55,8 @@ buildForeignSigs input libPath externs modules = do
   -- install) — the wasm export is the source of truth for the calling convention, covering the
   -- polymorphic / unboxed-`Int` `*Impl` foreigns whose marshalling externs cannot reconstruct (e.g.
   -- `Data.Array.rangeImpl`'s `(param i32)`); overrides externs/source. Reading from the lib (not the
-  -- ulib source tree) keeps the build self-contained for the `ulib upgrade` user flow.
+  -- ulib source tree) keeps the build self-contained for the lib-override flow (the planned
+  -- `ulib upgrade` command, ADR 0031 §5, is not yet implemented).
   ulibSigsByMod <- for modules \m -> do
     let mn = printModname m.name
     projWasm <- exists =<< joinPath [ input, mn, "foreign.wasm" ]

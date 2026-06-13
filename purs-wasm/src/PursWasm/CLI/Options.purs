@@ -92,9 +92,9 @@ buildOptionsParser =
           # ArgParser.boolean
     , dumpMir:
         ArgParser.argument [ "--dump-mir" ]
-          "Dump how the given module's middle IR (MIR) changes after every optimizer\n\
-          \sub-stage (specialize/simplify/impurify) of every round, written to\n\
-          \<output>/<MODULE>.mir.txt (debugging; cf. purs-backend-es --trace-rewrites)."
+          "Dump the given module's middle IR (MIR) at the optimizer's snapshot points\n\
+          \(specialized input, per-module optimized, post-inline specialization), written\n\
+          \to <output>/<MODULE>.mir.txt (debugging; cf. purs-backend-es --trace-rewrites)."
           # ArgParser.optional
     }
 

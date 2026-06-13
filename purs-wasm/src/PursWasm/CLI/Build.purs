@@ -73,7 +73,7 @@ warnUlibVersionDrift mManifest mLock reachable = case mManifest, mLock of
       warn
         ( Log.yellow
             ( Fmt.fmt
-                @"⚠ ulib: {pkg} is {got}, but ulib supports {want} — those modules fall back to the registry foreign (run `ulib upgrade`, or align the package-set)"
+                @"⚠ ulib: {pkg} is {got}, but ulib supports {want} — those modules fall back to the registry foreign (align your package-set to {want} to use the native ulib provider)"
                 { pkg: mm.package, got: fromMaybe "?" mm.got, want: mm.want }
             )
         )
@@ -106,7 +106,8 @@ buildCmd cliRoot binaryenBinDir args = do
   -- ADR 0031: read the ulib manifest + spago.lock once. `shadowSet` (manifest + lock, exact match)
   -- DRIVES resolution. The manifest is read from the lib itself (`$LIB/ulib-manifest.json`, copied in
   -- at install) so the precompiled lib is self-describing — the build needs no ulib source tree
-  -- (matters for the `ulib upgrade` user flow).
+  -- (matters for the lib-override flow — the planned, not-yet-implemented `ulib upgrade` scenario,
+  -- ADR 0031 §5).
   mManifest <- readManifest =<< joinPath [ libPath, ulibManifestFile ]
   mLock <- map parseLock <$> readText "spago.lock"
   -- File-level reachability (before the expensive full decode): read each module's import list
@@ -179,9 +180,10 @@ buildCmd cliRoot binaryenBinDir args = do
   -- directory would be misleading.
   let bundleDir = args.outDir
   mkdirP bundleDir
-  -- `--dump-mir <Module>`: dump that module's MIR after every optimizer sub-stage to
-  -- `<output>/<Module>.mir.txt` (debugging the optimizer; supersedes the old dump-mir/dump-opt
-  -- scripts, which only saw the fixtures you hand-linked — this sees the real reachable closure).
+  -- `--dump-mir <Module>`: dump that module's MIR at the optimizer's snapshot points (specialized
+  -- input, per-module optimized, post-inline specialization) to `<output>/<Module>.mir.txt`
+  -- (debugging the optimizer; supersedes the old dump-mir/dump-opt scripts, which only saw the
+  -- fixtures you hand-linked — this sees the real reachable closure).
   case args.dumpMir of
     Nothing -> pure unit
     Just target -> do
