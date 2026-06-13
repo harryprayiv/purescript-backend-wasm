@@ -126,6 +126,15 @@ id). Records share the label-map representation with dictionaries (→
 update** of an open row is supported too — the unknown extra fields are preserved by a
 runtime copy-and-set (ADR 0023).
 
+**Record metaprogramming** works: `RowToList` field iteration with
+`IsSymbol`/`reflectSymbol`, and `Record.insert` / `Record.Builder` / `Record.merge` and the
+`record-studio`-style helpers. Adding a field whose name is **not** a syntactic record label
+anywhere — so it has no compile-time id — is supported via runtime label interning
+(`$rt.internDynamic`, the [ADR 0001](../design-decisions/0001-wasm-gc-substrate-and-value-representation.md)
+addendum); `Test.E2E.Cli.RecordMeta` covers it. One load-time caveat applies when a **top-level
+value** is built through a re-entrant JS foreign — see
+[Performance and Limitations § a top-level value computed through a re-entrant JS foreign](../getting-started/performance-and-limitations.md#a-top-level-value-computed-through-a-re-entrant-js-foreign-traps-at-load).
+
 ## The Effect monad
 
 `Effect` is supported, including its mutually-recursive `Functor`/`Apply`/`Applicative`/

@@ -80,6 +80,21 @@ globalized; recursive non-function values remain unsupported.
   > instantiation, guarded by `examples/helloworld` in the e2e suite. Eager load-time
   > evaluation of a pure CAF that traps/diverges is accepted as observationally
   > equivalent (the JS backend's `foo = unsafeThrow "…"` throws on import too).
+  >
+  > **Known limitation (2026-06-13) — instantiation-time CAF init vs re-entrant JS foreigns:**
+  > because a globalised CAF is computed at **instantiation** (the wasm `start` section runs
+  > `$caf_init`), a CAF whose initializer transitively calls a **JS-fallback foreign that re-enters
+  > wasm** (a higher-order `foreign.js` taking wasm closures — e.g. `Data.Unfoldable.unfoldrArrayImpl`,
+  > reached by `record-studio`'s `keys` / `shrink`) **traps at load**: the foreign's callback marshals
+  > through `inst.exports`, but the loader binds `inst` only *after* `WebAssembly.instantiate` returns
+  > and the start function runs *during* it (`TypeError: Cannot read properties of undefined (reading
+  > 'exports')`). This is a WebAssembly constraint — an instance's exports cannot be re-entered from
+  > JS during its own start. **Workaround:** compute such a value inside `main` / a function (run after
+  > load), not as a top-level CAF. **Planned fix:** keep CAFs as eager-once globals (this decision
+  > stands — *not* lazy thunks), but move the init *trigger* off the `start` section — the loader calls
+  > an exported `$caf_init` right after instantiation (standalone, which has no JS foreigns, keeps the
+  > `start` section). That needs the link/emit split introduced with the streaming-compilation work
+  > ([ADR 0021](0021-streaming-dependency-ordered-wpo.md)), so it rides along with it.
 - Composes with ADR 0004: internal globals may hold boxed `eqref`; the
   host-facing export is an unboxed `i32` global set during init.
 - Bounds the cyclic-value problem cleanly: the globalization pass handles only

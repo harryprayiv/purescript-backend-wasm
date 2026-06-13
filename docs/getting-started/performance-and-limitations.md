@@ -160,3 +160,38 @@ boundary.
 
 `Aff` is not supported: its asynchronous scheduler relies on FFI that purs-wasm does not
 provide.
+
+### A top-level value computed through a re-entrant JS foreign traps at load
+
+A **top-level binding (CAF)** is computed once **at instantiation** — its value is stored in a
+module global the rest of the program reads (ADR 0006). If such a binding's computation
+transitively calls a **JS foreign that calls back into wasm** — a higher-order `foreign.js` that
+receives wasm closures, e.g. `Data.Unfoldable.unfoldrArrayImpl`, which `record-studio`'s
+`keys` / `shrink` reach — it **traps at load** with `TypeError: Cannot read properties of
+undefined (reading 'exports')`. The callback re-enters the instance's exports, but the loader binds
+the instance only *after* `WebAssembly.instantiate` returns, while initialization runs *during* it;
+WebAssembly does not let an instance's exports be re-entered from JS during its own start.
+
+This only affects **top-level** values whose initializer routes through such a foreign — most record
+metaprogramming (including building records with `record-studio`) is fine when run from a function.
+
+**Workaround:** compute the value inside `main` (or any function called after load), not as a
+top-level binding:
+
+```purescript
+-- traps at load:
+result :: SomeRecord
+result = shrink (alice // { bio: "…" })
+
+main :: Effect Unit
+main = logShow result
+
+-- works — computed after load:
+main :: Effect Unit
+main = logShow (shrink (alice // { bio: "…" }))
+```
+
+The fix (the loader runs initialization *after* instantiation, instead of the wasm start section)
+rides along with the streaming-compilation work — see
+[ADR 0006](https://github.com/purs-wasm/purescript-backend-wasm/blob/main/docs/design-decisions/0006-top-level-value-bindings-as-globals.md)
+and [ADR 0021](https://github.com/purs-wasm/purescript-backend-wasm/blob/main/docs/design-decisions/0021-streaming-dependency-ordered-wpo.md).
