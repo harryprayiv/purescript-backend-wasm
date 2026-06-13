@@ -1,4 +1,5 @@
--- | Source for `Slice2.corefn.json` (the Slice 2 / closures E2E fixture).
+-- | The closures E2E fixture (built standalone by `purs-wasm build -e E2E.Closures`,
+-- | asserted by `Test.E2E.Cli.Closures`).
 -- |
 -- | Full-apply only: lambdas that capture a free variable and are then applied
 -- | exactly (no partial application of multi-arg functions, no recursive `let`).
@@ -13,9 +14,6 @@
 -- | host-callable entry points are `Int`-typed; `applyTwice` takes a function so
 -- | it is exercised only through `twiceAdd`. Uses a module-local foreign `intAdd`
 -- | (mapped to an i32 intrinsic), so no dictionaries are pulled in.
--- |
--- | The `.sample` extension keeps it out of the `test/**/*.purs` build glob. See
--- | README.md for how to regenerate the `.corefn.json`.
 module E2E.Closures where
 
 foreign import intAdd :: Int -> Int -> Int

@@ -3,7 +3,7 @@
 ;;
 ;; A foreign `.wat` may be written either as a full `(module …)` (declaring its own types)
 ;; or as a **fragment** — `(import …)` and `(func …)` forms with no `(module …)` wrapper and
-;; no type declarations. For a fragment, `bin` wraps it as `(module <this header> <fragment>)`
+;; no type declarations. For a fragment, `purs-wasm` wraps it as `(module <this header> <fragment>)`
 ;; before assembling, so every foreign shares ONE authoritative copy of the runtime value
 ;; types and they canonicalize identically across the merged modules (`wasm-merge`). The
 ;; runtime-core helpers a fragment uses are imported per module from "rt"

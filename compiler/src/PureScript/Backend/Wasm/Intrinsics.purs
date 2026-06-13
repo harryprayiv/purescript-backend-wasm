@@ -308,8 +308,9 @@ qualifiedIntrinsic = case _ of
 
 -- | The qualified names of `foreign import`s whose *running* performs a side effect —
 -- | the seed set for the middle-end's purity analysis (ADR 0015): the test-only counter
--- | primitives plus the `Effect.Ref` / `ST` cell ops (ADR 0017), so a `Perform` of a
--- | ref op is preserved. Other effectful FFI (Console, EffectFnN) is derived from
+-- | primitives, the `Effect.Ref` / `ST` cell ops (ADR 0017), and the `effect`-package
+-- | control-flow loops (`forE`/`foreachE`/`whileE`/`untilE`, ADR 0018), so a `Perform` of
+-- | one of these is preserved. Other effectful FFI (Console, EffectFnN) is derived from
 -- | externs/source types (`effectfulForeignNamesFromSigs`).
 effectfulForeignNames :: Set String
 effectfulForeignNames = Set.fromFoldable

@@ -1,15 +1,11 @@
--- | Source for `Slice1.corefn.json` (the Slice 1 / ADTs + pattern-matching E2E
--- | fixture).
+-- | The ADTs + pattern-matching E2E fixture (built standalone by
+-- | `purs-wasm build -e E2E.DataTypes`, asserted by `Test.E2E.Cli.DataTypes`).
 -- |
 -- | Pure ADT construction and matching: a nullary constructor (`None`), a field
 -- | constructor (`Some`), and a multi-field one (`Triple`); single-scrutinee,
 -- | unguarded `case`; `Var`/wildcard binders. The exposed functions are
 -- | `Int`-typed at the boundary so the host can drive them, while building and
 -- | matching the ADTs internally. No foreign imports.
--- |
--- | The `.sample` extension keeps it out of the `test/**/*.purs` build glob; it
--- | is not compiled as part of the suite. See README.md for how to regenerate
--- | the `.corefn.json`.
 module E2E.DataTypes where
 
 data OptInt = None | Some Int

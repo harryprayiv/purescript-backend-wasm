@@ -1,6 +1,6 @@
 -- | Shared parsing of `ulib/<Module>/foreign.wat` export signatures (ADR 0012). A ulib
 -- | foreign's wasm export signature is the source of truth for its calling convention, so
--- | both the `bin` linker and the e2e harness derive `ForeignSig`s from it the same way:
+-- | both the `purs-wasm` linker and the e2e harness derive `ForeignSig`s from it the same way:
 -- | scan each `(func (export "name") (param T)… (result T))` line, mapping `i32`/`f64` to
 -- | `MI32`/`MF64` and anything else (`eqref`, …) to `MOpaque`.
 module PureScript.Backend.Wasm.Ulib

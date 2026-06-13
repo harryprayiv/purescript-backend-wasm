@@ -1,8 +1,8 @@
 -- | Free-variable analysis over the middle IR (`MiddleEnd.IR`), used by MIR
--- | optimization passes (e.g. lambda lifting's capture computation). A
--- | self-contained, pure analysis. Mirrors `Lower.FreeVars` but on the uncurried
--- | MIR, where a lambda binds a parameter *list* and an application takes an
--- | argument *list*.
+-- | optimization passes (e.g. lambda lifting's capture computation) and by the
+-- | backend lowering's closure conversion (`Lower` imports `freeVars`). A
+-- | self-contained, pure analysis over the uncurried MIR, where a lambda binds a
+-- | parameter *list* and an application takes an argument *list*.
 module PureScript.Backend.Wasm.MiddleEnd.FreeVars
   ( freeVars
   , binderVars

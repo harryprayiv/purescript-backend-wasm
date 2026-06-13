@@ -1,5 +1,6 @@
--- | Source for `Slice2b.corefn.json` — the Slice 2 completion fixture for
--- | partial application and top-level mutual recursion.
+-- | The partial-application and top-level mutual-recursion E2E fixture (built
+-- | standalone by `purs-wasm build -e E2E.Recursion`, asserted by
+-- | `Test.E2E.Cli.Recursion`).
 -- |
 -- |   * `add3 = addN 3` is a partial application of a known 2-argument function
 -- |     (a PAP / first-class function value); `add3of n = add3 n` then over-
@@ -11,9 +12,6 @@
 -- | Recursion terminates structurally on `Nat`, so no `Int` comparison or
 -- | `Boolean` is needed. Host-callable entry points are `Int`-typed:
 -- | `add3of n == n + 3`, `even4 == 1`.
--- |
--- | The `.sample` extension keeps it out of the `test/**/*.purs` build glob. See
--- | README.md for how to regenerate the `.corefn.json`.
 module E2E.Recursion where
 
 foreign import intAdd :: Int -> Int -> Int

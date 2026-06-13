@@ -1,6 +1,6 @@
 ;; The shared runtime (ADR 0010). Hand-written WAT, assembled to runtime.wasm by
 ;; Binaryen's wasm-as. Generated programs IMPORT these `$rt.*` helpers from module
-;; "rt"; the test harness wires them at instantiation, and `bin` merges them in
+;; "rt"; the test harness wires them at instantiation, and `purs-wasm` merges them in
 ;; with wasm-merge for a single self-contained wasm.
 ;;
 ;; The value types below MUST match the compiler's `buildRuntimeTypes` (Codegen.purs)

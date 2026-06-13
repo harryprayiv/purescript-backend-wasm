@@ -42,8 +42,9 @@ type Sub = Tuple String M.Expr
 
 type LiftM = State { counter :: Int, lifted :: Array M.Bind }
 
--- | Lift every self-recursive local function in the module to a top-level
--- | supercombinator, prepending the new bindings to the module's declarations.
+-- | Lift every recursive local function group in the module (both single
+-- | self-recursive functions and mutually-recursive groups) to top-level
+-- | supercombinators, prepending the new bindings to the module's declarations.
 lambdaLiftModule :: M.Module -> M.Module
 lambdaLiftModule m =
   case runState (traverse (liftBind m.name) m.decls) { counter: 0, lifted: [] } of

@@ -10,8 +10,9 @@
 -- | (ADR 0030 — host-data-dependent operations fall back to JS; a program using them runs under the
 -- | loader). The public interface is unchanged, so this shadows the registry module.
 -- |
--- | NOTE: the UTF-8 byte helpers below duplicate those in the `Data.String.CodeUnits` shadow; a
--- | shared internal module is a future refactor (kept self-contained for now).
+-- | NOTE: the UTF-8 byte codec (`decodeAt` / `sliceBytes` / `byteIndexOf`) is shared with the
+-- | `Data.String.CodeUnits` shadow via `Data.String.Internal.Utf8` (ADR 0031 §6); only `blit`
+-- | stays local to this module.
 module Data.String.Common
   ( null
   , localeCompare

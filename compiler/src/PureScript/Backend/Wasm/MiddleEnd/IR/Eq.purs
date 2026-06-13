@@ -2,7 +2,7 @@
 -- | recurses through the expression tree on the native call stack, which overflows
 -- | on the deeply-nested expressions a real closure produces (e.g. array/list
 -- | fusion). The optimizer uses equality only as a *fixed-point* convergence check
--- | (`Simplify`'s per-expression loop, `MiddleEnd`'s whole-program loop), so it must
+-- | (`Simplify`'s per-expression loop), so it must
 -- | tolerate arbitrary depth. This walks the tree with an explicit work stack — a
 -- | tail-recursive `go` that PureScript compiles to a loop — pushing only the `Expr`
 -- | children that need comparing and deciding each node's non-`Expr` fields with the

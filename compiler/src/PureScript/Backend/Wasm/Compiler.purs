@@ -1,5 +1,5 @@
 -- | The public build facade: parse `corefn.json` sources and link a set of
--- | modules into one wasm binary (ADR 0009). This keeps the CLI (`bin`) free of
+-- | modules into one wasm binary (ADR 0009). This keeps the CLI (`purs-wasm`) free of
 -- | the Argonaut / Binaryen / IR details — it only does file I/O and calls these.
 module PureScript.Backend.Wasm.Compiler
   ( CompileOptions

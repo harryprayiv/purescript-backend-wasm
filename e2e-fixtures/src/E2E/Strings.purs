@@ -22,6 +22,6 @@ matchHi _ = case concatS "h" "i" of
   "ho" -> 2
   _ -> 0
 
--- multibyte (UTF-8): "é" is 2 bytes, so length 3 for "aéb"
+-- multibyte (UTF-8): `lenS` is the UTF-8 byte length, so "é" is 2 bytes ⇒ "aéb" is 4
 multibyteLen :: Int -> Int
 multibyteLen _ = lenS "aéb"

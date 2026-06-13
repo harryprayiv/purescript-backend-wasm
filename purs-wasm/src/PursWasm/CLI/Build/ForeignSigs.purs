@@ -1,6 +1,6 @@
 -- | Reconstruct the foreign calling-convention signatures the compiler/loader need, as the union
--- | of three sources (later overriding earlier): the modules' externs (`foreignSigs`), the
--- | `.purs` source for *private* `*Impl` foreigns externs omit (ADR 0016), and the curated
+-- | of three sources (precedence ulib > externs > source): the modules' externs (`foreignSigs`),
+-- | the `.purs` source for *private* `*Impl` foreigns externs omit (ADR 0016), and the curated
 -- | `ulib/<M>/foreign.wat` export signatures (ADR 0012, authoritative for the polymorphic foreigns
 -- | the merged provider satisfies). Keyed by `Module.ident`.
 module PursWasm.CLI.Build.ForeignSigs

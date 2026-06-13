@@ -65,7 +65,7 @@ data Atom
   = ALitInt Int -- also a `Char` (its code point); both box as `$Int = (struct i32)`
   | ALitNumber Number -- boxes as `$Num = (struct f64)`
   | ALitBoolean Boolean -- an `i31ref` (`true` = 1, `false` = 0), per ADR 0001
-  | ALitString String -- a UTF-8 `$Str = (struct (ref (array i8)))`, per ADR 0001
+  | ALitString String -- a UTF-8 `$Str = (struct (ref (array (mut i32))))`, per ADR 0001
   | AVar VarRef
 
 derive instance eqAtom :: Eq Atom
