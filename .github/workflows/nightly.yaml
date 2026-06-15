@@ -58,11 +58,6 @@ jobs:
       - name: Install deps
         run: pnpm install
 
-      # `runtime/runtime.wasm` is a build artifact (assembled from runtime.wat, git-ignored), and
-      # `prepack` copies it into the package — so it must be built before publishing.
-      - name: Build runtime
-        run: pnpm -F ./compiler run build:runtime
-
       # Smoke test before publishing, in case something reached `main` without a green CI run.
       - name: Test
         run: pnpm -F ./purs-wasm run test
@@ -81,14 +76,22 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "nightly version: $version"
 
-      # Bump package.json + regenerate Version.js (the `version` lifecycle script), without a git
-      # commit/tag — the change lives only in this CI workspace.
+      # Bump package.json (no git commit/tag — this workspace only). The repo `.npmrc` sets
+      # `ignore-scripts`, which suppresses the `version` lifecycle script, so bake `Version.js`
+      # explicitly here (it is what the CLI reports as its version, and what `prepack` compiles in).
       - name: Set version
         working-directory: purs-wasm
-        run: npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version
+        run: |
+          npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version
+          printf 'export const version = "v%s"\n' "${{ steps.ver.outputs.version }}" > src/PursWasm/CLI/Version.js
 
-      # `prepack` assembles bundle/ + runtime/ + lib/ into the package; `--tag nightly` keeps the
-      # stable `latest` tag in place.
+      # `ignore-scripts` (above) also suppresses `prepack` on `npm publish`, so assemble the package
+      # — bundle/ + runtime/ + lib/ — with an explicit `npm run`, which is not suppressed.
+      - name: Assemble package
+        working-directory: purs-wasm
+        run: npm run prepack
+
+      # `--tag nightly` keeps the stable `latest` tag in place; OIDC trusted publishing needs no token.
       - name: Publish nightly
         working-directory: purs-wasm
         run: npm publish --tag nightly --access public
