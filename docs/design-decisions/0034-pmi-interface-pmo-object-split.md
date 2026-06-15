@@ -32,7 +32,12 @@
 > (`.pmo`, 11.8 MB / 882 ms) is required for codegen regardless — so it was not worth the lazy-body
 > machinery. (b) A larger, *cache-independent* lever remains: the import-closure pass `JSON.parse`s
 > every `corefn.json` in the input dir (804 files, ~500 ms) on **every** build; a scoped
-> imports-only extractor would reclaim most of that for cold and warm alike. Tracked separately.
+> imports-only extractor would reclaim most of that for cold and warm alike. (c) **Build-level skip
+> (link on demand):** when *every* module is a cache hit and the whole-program inputs (externs,
+> foreign providers, `runtime.wasm`, build options, roots, compiler version) and the existing output
+> are unchanged, the entire back half (lower → codegen → Binaryen `-O` → `wasm-merge`, ~2.5 s) is
+> redundant and could be short-circuited via a build manifest — taking a no-change rebuild to
+> sub-second. A separate layer above this per-module cache. (b) and (c) are tracked as separate tasks.
 
 ## Context
 
