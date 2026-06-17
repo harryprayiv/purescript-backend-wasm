@@ -6,10 +6,9 @@
       url = "github:thomashoneyman/purescript-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nix-claude-code.url = "github:ryoppippi/nix-claude-code";
  };
 
-  outputs = { self, nixpkgs, flake-utils, purescript-overlay, nix-claude-code }:
+  outputs = { self, nixpkgs, flake-utils, purescript-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -18,7 +17,6 @@
             purescript-overlay.overlays.default
           ];
         };
-        claude-code = nix-claude-code.packages.${system}.default;
 
         # The published `purs-wasm` CLI (npm) wrapped to run on Nix. The npm package is self-contained
         # (an esbuild bundle + the precompiled ulib lib + the runtime); its only runtime need is the
@@ -80,7 +78,6 @@
               nodejs_24
               pnpm
               gnuplot
-              claude-code
             ];
           };
         }
