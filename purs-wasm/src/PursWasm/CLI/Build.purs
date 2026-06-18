@@ -27,7 +27,7 @@ import Effect (Effect)
 import Fmt as Fmt
 import Foreign.Object as Object
 import Partial.Unsafe (unsafeCrashWith)
-import PureScript.Backend.Wasm.Compiler (effectfulForeigns, finishLink, linkModule, mirTrace, parseModule, printMir)
+import PureScript.Backend.Wasm.Compiler (compilePerModule, effectfulForeigns, finishLink, linkModule, mirTrace, parseModule, printMir)
 import PureScript.Backend.Wasm.Lower.IR (MarshalKind(..), exportManifestJson)
 import PureScript.Backend.Wasm.MiddleEnd (liftModule, noCache, optimizeIncrementalM)
 import PureScript.Backend.Wasm.MiddleEnd.Serialize.Hash (hashString)
@@ -191,7 +191,7 @@ buildCmd cliRoot binaryenBinDir args = do
         , MEffect _ <- s.result -> pure unit
       Just _ -> logAndThrow "--executable requires the entry module's `main` to have type `Effect Unit`."
       Nothing -> logAndThrow "--executable: no `main` export found in the entry module(s)."
-  let opts = { optimize: not args.debug, optimizeMir: not args.noOpt }
+  let opts = { optimize: not args.debug, optimizeMir: not args.noOpt, perModuleRep: args.perModuleRep }
   -- One bundle per build, written flat under `--output` (no per-module subdir): the build emits a
   -- single linked wasm + optional loader, not per-module artifacts (ADR 0009), so a module-named
   -- directory would be misleading.
@@ -212,6 +212,54 @@ buildCmd cliRoot binaryenBinDir args = do
   -- `runtime.wasm` + foreign providers with `wasm-merge` into one self-contained wasm.
   appPath <- joinPath [ bundleDir, "app.wasm" ]
   wasmPath <- joinPath [ bundleDir, "index.wasm" ]
+  -- Normalise the whole-program `CompiledModule` (one live module emitted to `app.wasm`) to the
+  -- common `Linked` shape the packaging below consumes.
+  let
+    wholeLinked b =
+      { foreignModules: b.foreignModules
+      , cafInit: b.cafInit
+      , cafOwner: b.mod
+      , ownerPath: appPath
+      , ownerMergeName: "app"
+      , preWritten: ([] :: Array (Tuple FilePath String))
+      , cleanup: [ appPath ]
+      , cacheWrites: b.cacheWrites
+      , crossModuleExports: ([] :: Array String)
+      }
+  -- The lower+codegen core (ADR 0037): whole-program `finishLink` (the oracle, one wasm) or, under
+  -- `--per-module-codegen`, `compilePerModule` — each module is codegenned to its own wasm written
+  -- under `_build/<module>.wasm` (alongside the .pmi/.pmo cache, ready for Phase-3 reuse) and the
+  -- link glue is the `cafOwner`. Both normalise to `Linked`, so the packaging (foreign resolution,
+  -- loader, merge, footer) below is shared; the differential harness checks behaviour parity.
+  let
+    compileLinked modules cacheWrites =
+      if args.perModuleCodegen then do
+        result <- liftEffect (compilePerModule opts roots allSigs foreignNames externs modules)
+        case result of
+          Left err -> pure (Left err)
+          Right arts -> do
+            mkdirP cacheDir
+            preWritten <- for arts.moduleBytes \mb -> do
+              p <- joinPath [ cacheDir, mb.moduleName <> ".wasm" ]
+              writeBinary p mb.bytes
+              pure (Tuple p mb.moduleName)
+            gluePath <- joinPath [ cacheDir, "link.glue.wasm" ]
+            pure
+              ( Right
+                  { foreignModules: arts.foreignModules
+                  , cafInit: arts.cafInit
+                  , cafOwner: arts.glue
+                  , ownerPath: gluePath
+                  , ownerMergeName: "link"
+                  , preWritten
+                  , cleanup: ([] :: Array FilePath) -- keep per-module wasms in _build (Phase-3 cache)
+                  , cacheWrites
+                  , crossModuleExports: arts.crossModuleExports
+                  }
+              )
+      else do
+        built <- liftEffect (finishLink opts roots allSigs foreignNames externs modules cacheWrites)
+        pure (map wholeLinked built)
   linkResult <-
     if useCache then do
       -- Load each module's cache interface (.pmi) + object (.pmo); cached iff both load. `--force`
@@ -286,7 +334,7 @@ buildCmd cliRoot binaryenBinDir args = do
         inputs
       -- liftEffect progressEndImpl
       br *> info (Log.blue "Linking (lower + codegen)…")
-      liftEffect (finishLink opts roots allSigs foreignNames externs optimized.modules optimized.writes)
+      compileLinked optimized.modules optimized.writes
     else case args.dumpMir of
       -- `--dump-mir` needs the whole CoreFn for the trace, so keep the decode-everything path
       -- (a debugging build, where peak memory is not a concern).
@@ -300,7 +348,8 @@ buildCmd cliRoot binaryenBinDir args = do
         mirPath <- joinPath [ bundleDir, target <> ".mir.txt" ]
         writeText mirPath (mirTrace opts decodedModules allSigs target)
         info $ Log.blue ("✓ Wrote MIR trace for " <> target <> " to " <> mirPath)
-        liftEffect (linkModule opts roots decodedModules externs allSigs noCache)
+        -- `--dump-mir` is a whole-program debug path; per-module codegen is not applied here.
+        liftEffect (linkModule opts roots decodedModules externs allSigs noCache) <#> map wholeLinked
       -- Cold / `--no-opt`: translate + lambda-lift each module and drop its CoreFn before the next,
       -- so the whole program is never resident as CoreFn *and* MIR at once (copy-reduction — the
       -- front-half memory floor that blocks self-compilation). `--no-opt` does no whole-program
@@ -315,15 +364,15 @@ buildCmd cliRoot binaryenBinDir args = do
           Right m -> do
             either logAndThrow pure (checkCorefnVersions [ m ])
             pure (Just (liftModule m))
-        liftEffect (finishLink opts roots allSigs foreignNames externs lifted [])
+        compileLinked lifted []
   case linkResult of
     Left err -> logAndThrow err
-    Right built -> do
+    Right l -> do
       -- Persist cache misses (ADR 0034) before the merge, so a later failure still leaves a usable
       -- cache. `cacheWrites` is empty unless this was a `--cache` build.
-      when (not (Array.null built.cacheWrites)) do
+      when (not (Array.null l.cacheWrites)) do
         mkdirP cacheDir
-        for_ built.cacheWrites \w -> do
+        for_ l.cacheWrites \w -> do
           pmiPath <- joinPath [ cacheDir, w.name <> ".pmi" ]
           pmoPath <- joinPath [ cacheDir, w.name <> ".pmo" ]
           writeBinary pmiPath (encodePmi { sourceHash: w.sourceHash, key: w.entry.key, deps: w.deps, summary: w.entry.summary })
@@ -344,7 +393,7 @@ buildCmd cliRoot binaryenBinDir args = do
       -- Resolve each foreign module along the ADR 0014 ladder; a `foreign.wasm`/`.wat` provider is
       -- merged (speaks the internal ABI), else it falls back to the JS loader. `foreignModules` is
       -- the precise set the codegen emitted imports for (no byte re-parse).
-      providers <- for built.foreignModules (resolveForeign binaryenBinDir shadows libPath args.input bundleDir)
+      providers <- for l.foreignModules (resolveForeign binaryenBinDir shadows libPath args.input bundleDir)
       let wasmProvided = Array.mapMaybe (\p -> Tuple p.name <$> p.wasm) providers
       let jsProvided = Array.mapMaybe (\p -> if isNothing p.wasm then Just p.name else Nothing) providers
       -- Policy on foreign imports with no `foreign.wat` provider (they otherwise fall back to a
@@ -363,16 +412,42 @@ buildCmd cliRoot binaryenBinDir args = do
       -- and dispose the live module (the "emit" half of the link/emit split).
       let loaderEmitted = args.platform /= Standalone && needLoader
       bytes <- liftEffect do
-        when (not loaderEmitted) (maybe (pure unit) (B.setStart built.mod) built.cafInit)
-        b <- B.emitBinary built.mod
-        B.dispose built.mod
+        when (not loaderEmitted) (maybe (pure unit) (B.setStart l.cafOwner) l.cafInit)
+        b <- B.emitBinary l.cafOwner
+        B.dispose l.cafOwner
         pure b
-      writeBinary appPath bytes
+      writeBinary l.ownerPath bytes
       let mergeForeigns = wasmProvided >>= \(Tuple name wp) -> [ wp, name ]
+      -- merge inputs: the owner (whole-program `app`, or the per-module link glue) + any already-
+      -- written per-module wasms (each named by its dotted module name, matching the cross-module
+      -- import module fields) + the runtime + foreign providers, into one self-contained wasm.
+      let appMerges = [ l.ownerPath, l.ownerMergeName ] <> (l.preWritten >>= \(Tuple p n) -> [ p, n ])
       info (Fmt.fmt @"Linking runtime + {n} foreign provider(s) with wasm-merge…\n" { n: Array.length wasmProvided })
-      execFile (wasmMergeBin binaryenBinDir) ([ appPath, "app", runtimeWasm cliRoot, "rt" ] <> mergeForeigns <> [ "-o", wasmPath, "--all-features" ])
-      unlink appPath
+      execFile (wasmMergeBin binaryenBinDir) (appMerges <> [ runtimeWasm cliRoot, "rt" ] <> mergeForeigns <> [ "-o", wasmPath, "--all-features" ])
+      for_ l.cleanup unlink
       for_ providers \p -> when p.assembled (maybe (pure unit) unlink p.wasm)
+      -- Each per-module wasm is already optimised independently (ADR 0037 Phase 3 — verified to keep
+      -- GC types canonical under merge), so the merged wasm needs no whole-program re-optimise. Post
+      -- merge, internalise the cross-module function exports (now resolved — they only existed for
+      -- `wasm-merge`; the oracle never exported dependency-module functions) and run a cheap DCE pass
+      -- (`remove-unused-module-elements`) to drop the now-unreachable, matching the oracle's surface.
+      -- The whole-program path already optimised before merge, so this is per-module only.
+      when (args.perModuleCodegen && opts.optimize) do
+        info (Log.blue "Internalizing cross-module exports + DCE…")
+        readBinary wasmPath >>= case _ of
+          Nothing -> logAndThrow ("merged wasm not found: " <> wasmPath)
+          Just merged -> do
+            optimized <- liftEffect do
+              mod <- B.readBinary merged
+              -- `readBinary` defaults to MVP features; the merged module is wasm-GC, so re-enable
+              -- GC before emitting or the GC type/supertype encoding is written invalid.
+              B.setFeaturesGC mod
+              for_ l.crossModuleExports (B.removeExport mod)
+              B.runPasses mod [ "remove-unused-module-elements" ]
+              out <- B.emitBinary mod
+              B.dispose mod
+              pure out
+            writeBinary wasmPath optimized
       artifact <-
         if args.text then do
           watPath <- joinPath [ bundleDir, "index.wat" ]

@@ -4,9 +4,12 @@
 module PureScript.Backend.Wasm.Compiler
   ( CompileOptions
   , CompiledModule
+  , LinkCore
   , parseModule
   , linkModule
   , finishLink
+  , compilePerModule
+  , PerModuleArtifacts
   , effectfulForeigns
   , compileModules
   , compileModulesText
@@ -27,13 +30,13 @@ import Data.Maybe (Maybe, maybe)
 import Data.Set (Set)
 import Data.Set as Set
 import Data.String (joinWith)
-import Data.Traversable (traverse)
+import Data.Traversable (sequence, traverse)
 import Effect (Effect)
 import Foreign.Object (Object)
-import PureScript.Backend.Wasm.Codegen (buildModule)
+import PureScript.Backend.Wasm.Codegen (buildLinkGlue, buildModule, buildModuleSingle)
 import PureScript.Backend.Wasm.Externs (ForeignSig, ctorFieldReps, effectfulForeignAritiesFromSigs, effectfulForeignNamesFromSigs)
 import PureScript.Backend.Wasm.Intrinsics (effectfulForeignNames)
-import PureScript.Backend.Wasm.Lower (lowerModules)
+import PureScript.Backend.Wasm.Lower (lowerModules, lowerProgramFragments)
 import PureScript.Backend.Wasm.MiddleEnd (CacheInput, CacheWrite, noCache, optimizeProgramCached, optimizeProgramTrace)
 import PureScript.Backend.Wasm.MiddleEnd.IR as M
 import PureScript.Backend.Wasm.MiddleEnd.Print (printModule)
@@ -56,7 +59,10 @@ parseModule source = case jsonParser source of
 -- | spans are threaded through to Binaryen debug locations. `optimizeMir` toggles
 -- | the middle-end (dictionary elimination); off builds an unoptimized baseline
 -- | (lambda lifting still runs, since it is needed for constant-stack tail recursion).
-type CompileOptions = { optimize :: Boolean, optimizeMir :: Boolean }
+-- | `perModuleRep` (ADR 0037 ③) constrains the representation analysis to a per-module
+-- | boundary (cross-module-visible functions pinned to the boxed ABI). Off by default; the
+-- | build is still whole-program, this only simulates the per-module rep for A/B measurement.
+type CompileOptions = { optimize :: Boolean, optimizeMir :: Boolean, perModuleRep :: Boolean }
 
 -- | The live result of `linkModule` (the "link" half of link/emit, ADR 0021): the built
 -- | Binaryen module, the distinct user-foreign source modules to resolve (ADR 0014), and the
@@ -116,11 +122,13 @@ effectfulForeigns foreignSigs' =
   , arities: effectfulForeignAritiesFromSigs foreignSigs'
   }
 
--- | The shared back half of linking: lower the optimized MIR, build and validate the Binaryen
--- | module, and package it with the cache misses to persist. `foreignNames` is the qualified
--- | CoreFn-declared foreign set (for lowering's opaque-import fallback, ADR 0016).
-finishLink
-  :: CompileOptions
+-- | The back half of linking — lower the optimized MIR, build and validate the Binaryen
+-- | module, package it with the cache misses — as a pluggable interface, so the CLI can choose
+-- | the whole-program `finishLink` (the oracle) or the per-module `linkPerModule` (ADR 0037
+-- | Phase 2) without the driver knowing which. `foreignNames` is the qualified CoreFn-declared
+-- | foreign set (lowering's opaque-import fallback, ADR 0016); the rest mirror `finishLink`.
+type LinkCore =
+  CompileOptions
   -> Array ModuleName
   -> Object ForeignSig
   -> Set String
@@ -128,8 +136,92 @@ finishLink
   -> Array M.Module
   -> Array CacheWrite
   -> Effect (Either String CompiledModule)
+
+-- | What `compilePerModule` produces for the caller to link (ADR 0037 Phase 2): each module's
+-- | already-emitted wasm bytes (to write under `<output>/_build/<module>.wasm` and `wasm-merge`),
+-- | the live link-glue module (kept live so packaging can `setStart` its `caf_init` when there is
+-- | no loader), the glue's `caf_init` function (`Nothing` if nothing is globalized), and the
+-- | distinct user-foreign source modules to resolve.
+type PerModuleArtifacts =
+  { moduleBytes :: Array { moduleName :: String, bytes :: Uint8Array }
+  , glue :: B.Module
+  , cafInit :: Maybe B.Function
+  , foreignModules :: Array String
+  -- the cross-module function export names (qualified keys) each module emitted purely for
+  -- `wasm-merge` to resolve cross-module calls; after merge these are redundant, so the caller
+  -- internalises them and lets the optimiser DCE any now-unused (ADR 0037 ⑥, Slice 2.2c).
+  , crossModuleExports :: Array String
+  }
+
+-- | Per-module compilation (ADR 0037 Phase 2, Slice 2.2): lower each module to a fragment, codegen
+-- | each to its OWN Binaryen module (`buildModuleSingle` — cross-module calls become imports, this
+-- | module's cross-module-referenced functions are exported), then synthesize the link glue. Each
+-- | module is validated and emitted to bytes (then disposed, to bound peak memory); the glue stays
+-- | live for the caller to `setStart`. Modules are emitted UNOPTIMIZED: optimising each
+-- | independently could reorganise its GC types so they no longer canonicalise across modules under
+-- | `wasm-merge` — the merged wasm is optimised once, after merge (Slice 2.2c). A module that fails
+-- | validation returns its wat.
+compilePerModule
+  :: CompileOptions
+  -> Array ModuleName
+  -> Object ForeignSig
+  -> Set String
+  -> Array ExternsFile
+  -> Array M.Module
+  -> Effect (Either String PerModuleArtifacts)
+compilePerModule opts roots foreignSigs' foreignNames externs optimizedModules =
+  case lowerProgramFragments (ctorFieldReps externs) foreignSigs' foreignNames roots optimizedModules of
+    Left err -> pure (Left ("linking failed: " <> show err))
+    Right lowered -> do
+      results <- traverse (buildOne lowered) lowered.fragments
+      case sequence results of
+        Left err -> pure (Left err)
+        Right built -> do
+          let
+            cafInits = Array.mapMaybe
+              (\b -> map (\e -> { moduleName: b.moduleName, cafInitExport: e }) b.cafInitExport)
+              built
+          glue <- buildLinkGlue cafInits
+          pure
+            ( Right
+                { moduleBytes: built <#> \b -> { moduleName: b.moduleName, bytes: b.bytes }
+                , glue: glue.mod
+                , cafInit: glue.cafInit
+                , foreignModules: Array.nub (built >>= _.foreignModules)
+                -- internalise post-merge: the cross-module function exports (resolved by merge) AND
+                -- each module's `caf_init$M` (the link glue imports + calls them, so after merge the
+                -- export is redundant). The glue's own host-facing `caf_init` is a different name, so
+                -- it is kept. Result: the merged export surface matches the whole-program oracle.
+                , crossModuleExports: Set.toUnfoldable lowered.crossModuleRefs <> map _.cafInitExport cafInits
+                }
+            )
+  where
+  buildOne lowered f = do
+    let dotted = joinWith "." f.moduleName
+    let meta = { moduleName: dotted, keyHomeModule: lowered.keyHomeModule, crossModuleRefs: lowered.crossModuleRefs }
+    single <- buildModuleSingle meta { funcs: f.funcs, labels: lowered.labels, exportSigs: f.exportSigs }
+    ok <- B.validate single.mod
+    if not ok then do
+      wat <- B.emitText single.mod
+      B.dispose single.mod
+      pure (Left ("per-module codegen: " <> dotted <> " failed validation:\n" <> wat))
+    else do
+      -- Optimise each module independently (ADR 0037 Phase 3): verified to preserve cross-module GC
+      -- type canonicalisation under merge, so the merged wasm needs no whole-program re-optimise —
+      -- only a cheap post-merge DCE of the internalised exports. This makes the optimised per-module
+      -- wasm a cacheable artifact (a changed module re-optimises alone). Imports/exports (the boxed
+      -- cross-module ABI) are preserved, so merge resolution is unaffected.
+      when opts.optimize (B.optimize single.mod)
+      bytes <- B.emitBinary single.mod
+      B.dispose single.mod
+      pure (Right { moduleName: dotted, bytes, cafInitExport: single.cafInitExport, foreignModules: single.foreignModules })
+
+-- | The shared back half of linking: lower the optimized MIR, build and validate the Binaryen
+-- | module, and package it with the cache misses to persist. `foreignNames` is the qualified
+-- | CoreFn-declared foreign set (for lowering's opaque-import fallback, ADR 0016).
+finishLink :: LinkCore
 finishLink opts roots foreignSigs' foreignNames externs optimizedModules cacheWrites =
-  case lowerModules opts.optimizeMir (ctorFieldReps externs) foreignSigs' foreignNames roots optimizedModules of
+  case lowerModules opts.perModuleRep opts.optimizeMir (ctorFieldReps externs) foreignSigs' foreignNames roots optimizedModules of
     Left err -> pure (Left ("linking failed: " <> show err))
     Right program -> do
       built <- buildModule program
