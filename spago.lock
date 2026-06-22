@@ -108,7 +108,8 @@
             "prelude",
             "record",
             "refs",
-            "unsafe-coerce"
+            "unsafe-coerce",
+            "wasm-base"
           ]
         },
         "test": {
