@@ -79,6 +79,24 @@
               pnpm
               gnuplot
             ];
+            # Fast provisioning check only. NO builds here. Auto-building in a shellHook breaks
+            # `nix develop --command`, direnv, and CI, and makes shell entry unpredictably slow.
+            # If anything generated is missing, point at the one-command bootstrap so a later
+            # build fails with an instruction, not a cryptic wasm-merge/instantiate error.
+            shellHook = ''
+              missing=()
+              [ -d node_modules ]               || missing+=("node deps")
+              [ -d output ]                     || missing+=("compiled workspace")
+              [ -n "$(ls -A lib 2>/dev/null)" ] || missing+=("ulib lib")
+              [ -f runtime/runtime.wasm ]       || missing+=("runtime.wasm")
+              if [ ''${#missing[@]} -ne 0 ]; then
+                echo ""
+                echo "purs-wasm dev shell: not provisioned yet."
+                printf '  missing: %s\n' "''${missing[*]}"
+                echo "  Run once:  ./bootstrap.sh"
+                echo ""
+              fi
+            '';
           };
         }
     );
