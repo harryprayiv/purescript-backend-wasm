@@ -8,4 +8,4 @@ workspace:
     # `wasm-base: 0.1.1` once that's reliably the case everywhere.
     wasm-base:
       git: "https://github.com/purs-wasm/purescript-wasm-base.git"
-      ref: "v0.1.1"
+      ref: "v0.2.0"
