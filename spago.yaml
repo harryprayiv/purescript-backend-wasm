@@ -1,11 +1,5 @@
 workspace:
   packageSet:
-    registry: 77.4.0
-  extraPackages:
-    # Consume wasm-base via the pinned git tag, not the registry version: a git dep clones the repo
-    # directly (deterministic in CI), whereas the registry version needs spago's local registry
-    # index + metadata caches to have propagated the just-published package. Switch to
-    # `wasm-base: 0.1.1` once that's reliably the case everywhere.
-    wasm-base:
-      git: "https://github.com/purs-wasm/purescript-wasm-base.git"
-      ref: "v0.2.0"
+    registry: 77.10.0
+  extraPackages: {}
+  

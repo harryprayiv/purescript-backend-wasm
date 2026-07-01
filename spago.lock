@@ -40,6 +40,58 @@
           ]
         }
       },
+      "cli-lib": {
+        "path": "cli-lib",
+        "core": {
+          "dependencies": [
+            "ansi",
+            "argonaut-core",
+            "argparse-basic",
+            "arraybuffer-types",
+            "arrays",
+            "bifunctors",
+            "compiler",
+            "console",
+            "control",
+            "dodo-printer",
+            "effect",
+            "either",
+            "exceptions",
+            "fmt",
+            "foldable-traversable",
+            "foreign-object",
+            "maybe",
+            "node-buffer",
+            "node-fs",
+            "node-path",
+            "node-process",
+            "ordered-collections",
+            "prelude",
+            "run",
+            "strings",
+            "tuples",
+            "typelevel-prelude"
+          ]
+        },
+        "test": {
+          "dependencies": [
+            "arraybuffer-types",
+            "arrays",
+            "console",
+            "dodo-printer",
+            "effect",
+            "either",
+            "maybe",
+            "ordered-collections",
+            "prelude",
+            "run",
+            "spec",
+            "spec-node",
+            "strings",
+            "tuples"
+          ]
+        }
+      },
       "compiler": {
         "path": "compiler",
         "core": {
@@ -172,6 +224,21 @@
           "dependencies": []
         }
       },
+      "examples-intpatch": {
+        "path": "examples/intpatch",
+        "core": {
+          "dependencies": [
+            "console",
+            "effect",
+            "integers",
+            "maybe",
+            "prelude"
+          ]
+        },
+        "test": {
+          "dependencies": []
+        }
+      },
       "examples-metatheory": {
         "path": "examples/metatheory",
         "core": {
@@ -254,6 +321,7 @@
             "argparse-basic",
             "arraybuffer-types",
             "arrays",
+            "cli-lib",
             "compiler",
             "console",
             "dodo-printer",
@@ -296,6 +364,48 @@
           ]
         }
       },
+      "purwc": {
+        "path": "purwc",
+        "core": {
+          "dependencies": [
+            "argonaut-core",
+            "argparse-basic",
+            "arrays",
+            "cli-lib",
+            "compiler",
+            "console",
+            "effect",
+            "either",
+            "fmt",
+            "foreign-object",
+            "maybe",
+            "node-path",
+            "node-process",
+            "ordered-collections",
+            "prelude",
+            "run",
+            "tuples",
+            "typelevel-prelude"
+          ]
+        },
+        "test": {
+          "dependencies": [
+            "spec",
+            "spec-node"
+          ]
+        }
+      },
+      "purwc-fixtures": {
+        "path": "purwc-fixtures",
+        "core": {
+          "dependencies": [
+            "prelude"
+          ]
+        },
+        "test": {
+          "dependencies": []
+        }
+      },
       "ulib-tooling": {
         "path": "ulib-tooling",
         "core": {
@@ -306,6 +416,7 @@
             "argonaut-core",
             "argparse-basic",
             "arrays",
+            "cli-lib",
             "compiler",
             "console",
             "dodo-printer",
@@ -322,7 +433,6 @@
             "node-process",
             "ordered-collections",
             "prelude",
-            "purs-wasm",
             "run",
             "strings",
             "transformers"
@@ -341,7 +451,7 @@
     },
     "package_set": {
       "address": {
-        "registry": "77.4.0"
+        "registry": "77.10.0"
       },
       "compiler": ">=0.15.15 <0.16.0",
       "content": {
@@ -543,6 +653,7 @@
         "halogen-vdom": "8.0.0",
         "halogen-vdom-string-renderer": "0.5.0",
         "halogen-xterm": "2.0.0",
+        "harmonia": "0.1.1",
         "heckin": "2.0.1",
         "heterogeneous": "0.7.0",
         "homogeneous": "0.4.0",
@@ -639,6 +750,7 @@
         "monoidal": "0.16.0",
         "morello": "0.4.0",
         "mote": "3.0.0",
+        "motion": "4.0.0",
         "motsunabe": "2.0.0",
         "mvc": "0.0.1",
         "mysql": "6.0.1",
@@ -831,7 +943,7 @@
         "tanstack-query": "3.0.0",
         "tecton": "0.2.1",
         "tecton-halogen": "0.2.0",
-        "temporal": "0.1.0",
+        "temporal": "0.2.0",
         "test-unit": "17.0.0",
         "text-formatting": "0.1.0",
         "thermite": "6.3.1",
@@ -887,6 +999,7 @@
         "versions": "7.0.0",
         "visx": "0.0.2",
         "vitest": "2.0.0",
+        "wasm-base": "0.2.0",
         "web-chain": "1.0.1",
         "web-clipboard": "6.0.0",
         "web-cssom": "2.0.0",
@@ -935,7 +1048,7 @@
         "webextension-polyfill": "0.1.0",
         "webgpu": "0.0.1",
         "which": "2.0.0",
-        "whine-core": "0.0.33",
+        "whine-core": "0.0.34",
         "xterm": "1.0.0",
         "yaml-next": "3.1.1",
         "yoga-acp-om": "0.1.1",
@@ -950,6 +1063,7 @@
         "yoga-fastify-om": "0.4.4",
         "yoga-fetch": "1.0.1",
         "yoga-fetch-om": "0.6.3",
+        "yoga-format": "1.0.0",
         "yoga-heroui": "2.0.2",
         "yoga-http-api": "0.3.1",
         "yoga-jaeger": "0.1.1",
@@ -983,12 +1097,7 @@
         "zipperarray": "2.0.0"
       }
     },
-    "extra_packages": {
-      "wasm-base": {
-        "git": "https://github.com/purs-wasm/purescript-wasm-base.git",
-        "ref": "v0.1.1"
-      }
-    }
+    "extra_packages": {}
   },
   "packages": {
     "aff": {
@@ -2245,9 +2354,9 @@
       ]
     },
     "wasm-base": {
-      "type": "git",
-      "url": "https://github.com/purs-wasm/purescript-wasm-base.git",
-      "rev": "48d9b4fdc7d7e952f168cf062819ac3c13be67ea",
+      "type": "registry",
+      "version": "0.2.0",
+      "integrity": "sha256-PD7LQjCVoKBTmo1/pSjtoT1ASkLqqL2IVMay5AB4bbQ=",
       "dependencies": []
     }
   }
